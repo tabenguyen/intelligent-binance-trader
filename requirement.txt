@@ -1,0 +1,5 @@
+binance-connector==3.6.0
+pandas==2.2.2
+pandas-ta==0.3.14b
+setuptools==69.5.1
+numpy==1.26.4

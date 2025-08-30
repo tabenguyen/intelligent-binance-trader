@@ -1,0 +1,14 @@
+[project]
+name = "coin-gemini"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "binance-connector==3.6.0",
+    "pandas==2.2.2",
+    "pandas-ta==0.3.14b",
+    "setuptools==69.5.1",
+    "numpy==1.26.4",
+    "python-dotenv==1.0.0"
+]
