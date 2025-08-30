@@ -260,6 +260,25 @@ def check_active_trades_status(client):
             clear_active_trades_file()
 
 
+def validate_trade_amount(client, symbol, trade_amount_usdt, current_price):
+    """Validate if the trade amount meets minimum notional requirements."""
+    try:
+        filters = get_symbol_filters(client, symbol)
+        if not filters:
+            return False, "Could not get symbol filters"
+        
+        min_notional = get_min_notional(filters)
+        quantity = trade_amount_usdt / current_price
+        trade_value = quantity * current_price
+        
+        if trade_value < min_notional:
+            return False, f"Trade value ${trade_value:.2f} below minimum notional ${min_notional:.2f}"
+        
+        return True, f"Trade value ${trade_value:.2f} meets minimum notional ${min_notional:.2f}"
+    except Exception as e:
+        return False, f"Error validating trade amount: {e}"
+
+
 def is_symbol_actively_trading(symbol):
     """Check if a symbol currently has an active OCO order."""
     return symbol in active_trades
@@ -275,6 +294,16 @@ def get_symbol_filters(client, symbol):
     except ClientError as e:
         logging.error(f"[{symbol}] Error fetching exchange info: {e}")
     return None
+
+
+def get_min_notional(filters):
+    """Extract minimum notional value from symbol filters."""
+    for f in filters:
+        if f['filterType'] == 'NOTIONAL':
+            return float(f['minNotional'])
+        elif f['filterType'] == 'MIN_NOTIONAL':
+            return float(f['minNotional'])
+    return 10.0  # Default fallback for most Binance symbols
 
 
 def format_value(value, filters, filter_type, key):
@@ -297,7 +326,21 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
     try:
         filters = get_symbol_filters(client, symbol)
         if not filters:
+            logging.error(f"[{symbol}] Could not get symbol filters")
             return
+
+        # Get minimum notional value requirement
+        min_notional = get_min_notional(filters)
+        trade_value = quantity * entry_price
+        
+        # Check if trade value meets minimum notional requirement
+        if trade_value < min_notional:
+            # Adjust quantity to meet minimum notional with 5% buffer
+            required_quantity = (min_notional * 1.05) / entry_price
+            logging.warning(f"[{symbol}] Trade value ${trade_value:.2f} below minimum notional ${min_notional:.2f}")
+            logging.info(f"[{symbol}] Adjusting quantity from {quantity:.6f} to {required_quantity:.6f}")
+            quantity = required_quantity
+            trade_value = quantity * entry_price
 
         # Format all values according to the symbol's specific rules
         formatted_quantity = format_value(
@@ -308,6 +351,20 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
             stop_loss, filters, 'PRICE_FILTER', 'tickSize')
         stop_limit_price = format_value(
             stop_loss * 0.999, filters, 'PRICE_FILTER', 'tickSize')  # 0.1% below trigger
+
+        # Final validation - ensure the formatted values still meet notional requirements
+        final_trade_value = float(formatted_quantity) * entry_price
+        if final_trade_value < min_notional:
+            logging.error(f"[{symbol}] Final trade value ${final_trade_value:.2f} still below minimum notional ${min_notional:.2f} after formatting")
+            return
+
+        logging.info(f"[{symbol}] Trade details:")
+        logging.info(f"  - Quantity: {formatted_quantity}")
+        logging.info(f"  - Entry Price: ${entry_price:.4f}")
+        logging.info(f"  - Trade Value: ${final_trade_value:.2f}")
+        logging.info(f"  - Stop Loss: ${formatted_stop_price}")
+        logging.info(f"  - Take Profit: ${formatted_profit_price}")
+        logging.info(f"  - Min Notional Required: ${min_notional:.2f}")
 
         logging.info(
             f"[{symbol}] Placing MARKET BUY order for {formatted_quantity} units.")
@@ -340,7 +397,12 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
         save_active_trades()
 
     except ClientError as error:
-        logging.error(f"[{symbol}] TRADE EXECUTION FAILED: {error}")
+        error_msg = str(error)
+        if "NOTIONAL" in error_msg:
+            logging.error(f"[{symbol}] NOTIONAL ERROR: Trade value too small. Current trade value: ${trade_value:.2f}, Required minimum: ${min_notional:.2f}")
+            logging.error(f"[{symbol}] Consider increasing TRADE_AMOUNT_USDT in your .env file to at least ${min_notional * 1.1:.2f}")
+        else:
+            logging.error(f"[{symbol}] TRADE EXECUTION FAILED: {error}")
     except Exception as e:
         logging.error(
             f"[{symbol}] An unexpected error occurred during execution: {e}")
@@ -407,6 +469,17 @@ def main():
                     risk = current_price - stop_loss
                     take_profit = current_price + (risk * RISK_REWARD_RATIO)
                     quantity_to_buy = TRADE_AMOUNT_USDT / current_price
+
+                    # Validate trade amount meets minimum notional requirements
+                    is_valid, validation_msg = validate_trade_amount(
+                        client, symbol, TRADE_AMOUNT_USDT, current_price)
+                    
+                    if not is_valid:
+                        logging.warning(f"[{symbol}] Trade validation failed: {validation_msg}")
+                        logging.warning(f"[{symbol}] Consider increasing TRADE_AMOUNT_USDT to at least ${get_min_notional(get_symbol_filters(client, symbol)) * 1.1:.2f}")
+                        continue
+
+                    logging.info(f"[{symbol}] Trade validation passed: {validation_msg}")
 
                     # --- AUTOMATED EXECUTION WITH BALANCE CHECK ---
                     logging.info("Checking account balance before trading...")

@@ -8,15 +8,21 @@ services:
 
     # Environment variables
     environment:
-      - USE_TESTNET=${USE_TESTNET:-true}
-      - TRADE_AMOUNT_USDT=${TRADE_AMOUNT_USDT:-15.0}
-      - RISK_REWARD_RATIO=${RISK_REWARD_RATIO:-1.5}
-      - MIN_USDT_BALANCE=${MIN_USDT_BALANCE:-100.0}
-      - BINANCE_API_KEY=${BINANCE_API_KEY}
-      - BINANCE_API_SECRET=${BINANCE_API_SECRET}
+      - TRADE_AMOUNT_USDT=10
+      - RISK_REWARD_RATIO=1.5
+      - MIN_USDT_BALANCE=50
+      - USE_TESTNET=false
+      - BINANCE_API_KEY=0o8F6DdGgaRxwg2SHKQLA4zlSVwca3xlQ2z50HcXqIWgISMRKWwrNmCfuiQnYQ6P
+      - BINANCE_API_SECRET=uXzi0kBjtA2zt1s8PfTsP3FDKwcALnoR8HkwM7zbvyA6hL2bhthGjuH8uFGeQZQ9
+      # - USE_TESTNET=${USE_TESTNET:-true}
+      # - BINANCE_API_KEY=QCEefkfOg7oLbY7Bm886fxVrUNWaLDhT6GCS3fLRnnXk4kgEsWj9CehnPPJmPBSg
+      # - BINANCE_API_SECRET=23MNoQHgg0sRBAy6Bn9AQvXtJhldZ5m2MxEG94D65hJLCZSUdKBUnh02Yv0KsaWs
+    # env_file:
+    #   - .env
 
     # Volumes for persistent data
     volumes:
+      - ./trading_bot.py:/app/trading_bot.py
       - ./data:/app/data
       - ./logs:/app/logs
       - ./active_trades.txt:/app/active_trades.txt
