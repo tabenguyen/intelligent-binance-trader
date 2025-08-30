@@ -603,6 +603,19 @@ def main():
                         f"[{symbol}] Skipping - already has active OCO order (ID: {active_trades[symbol]})")
                     continue
 
+                # --- BALANCE CHECK FIRST ---
+                # Check balance before doing any analysis to save processing time
+                logging.info(f"[{symbol}] Checking account balance...")
+                usdt_balance = get_usdt_balance(client)
+
+                if usdt_balance <= MIN_USDT_BALANCE:
+                    logging.warning(
+                        f"[{symbol}] USDT balance ({usdt_balance:.2f}) is below minimum ({MIN_USDT_BALANCE:.2f}). Skipping analysis.")
+                    continue
+
+                logging.info(
+                    f"[{symbol}] Balance check passed: {usdt_balance:.2f} USDT available")
+
                 df = get_binance_data(client, symbol)
                 if df is None:
                     time.sleep(2)  # Wait a moment before next symbol on error
@@ -633,22 +646,15 @@ def main():
                     logging.info(
                         f"[{symbol}] Trade validation passed: {validation_msg}")
 
-                    # --- AUTOMATED EXECUTION WITH BALANCE CHECK ---
-                    logging.info("Checking account balance before trading...")
-                    usdt_balance = get_usdt_balance(client)
-
-                    if usdt_balance > MIN_USDT_BALANCE:
-                        logging.info(
-                            f"USDT balance ({usdt_balance:.2f}) is above minimum ({MIN_USDT_BALANCE:.2f}). Executing trade.")
-                        execute_oco_trade(
-                            client, symbol, quantity_to_buy, current_price, stop_loss, take_profit)
-                        # Wait after a trade to prevent rapid-fire trades on the same signal
-                        logging.info(
-                            "Trade executed. Pausing for next scan cycle.")
-                        break  # Exit the for loop to start the 15min wait
-                    else:
-                        logging.warning(
-                            f"ACTION REQUIRED: USDT balance ({usdt_balance:.2f}) is below minimum ({MIN_USDT_BALANCE:.2f}). Skipping trade.")
+                    # --- EXECUTE TRADE (Balance already verified) ---
+                    logging.info(
+                        f"USDT balance ({usdt_balance:.2f}) is above minimum ({MIN_USDT_BALANCE:.2f}). Executing trade.")
+                    execute_oco_trade(
+                        client, symbol, quantity_to_buy, current_price, stop_loss, take_profit)
+                    # Wait after a trade to prevent rapid-fire trades on the same signal
+                    logging.info(
+                        "Trade executed. Pausing for next scan cycle.")
+                    break  # Exit the for loop to start the 15min wait
 
                 # Small delay to avoid hitting API rate limits too quickly
                 time.sleep(5)
