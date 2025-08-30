@@ -215,6 +215,72 @@ def get_usdt_balance(client):
         return 0.0
 
 
+def get_symbol_balance(client, symbol):
+    """Fetches the balance for a specific symbol (base asset)."""
+    try:
+        # Extract base asset from symbol (e.g., BTC from BTCUSDT)
+        base_asset = symbol.replace('USDT', '').replace(
+            'BUSD', '').replace('BNB', '')
+
+        account_info = client.account()
+        for balance in account_info['balances']:
+            if balance['asset'] == base_asset:
+                return float(balance['free'])
+        return 0.0
+    except ClientError as e:
+        logging.error(f"Error fetching {symbol} balance: {e}")
+        return 0.0
+    except Exception as e:
+        logging.error(
+            f"An unexpected error occurred while fetching {symbol} balance: {e}")
+        return 0.0
+
+
+def get_executed_quantity_from_order(buy_order):
+    """Extract the actual executed quantity from a market buy order."""
+    try:
+        if 'fills' in buy_order and buy_order['fills']:
+            # Sum up all fill quantities for the order
+            total_executed = 0.0
+            for fill in buy_order['fills']:
+                total_executed += float(fill['qty'])
+            return total_executed
+        elif 'executedQty' in buy_order:
+            return float(buy_order['executedQty'])
+        else:
+            logging.warning(
+                "Could not determine executed quantity from order response")
+            return None
+    except Exception as e:
+        logging.error(f"Error extracting executed quantity: {e}")
+        return None
+
+
+def wait_for_balance_update(client, symbol, expected_quantity, max_attempts=10, delay=3):
+    """Wait for the symbol balance to be updated after a buy order."""
+    base_asset = symbol.replace('USDT', '').replace(
+        'BUSD', '').replace('BNB', '')
+
+    for attempt in range(max_attempts):
+        current_balance = get_symbol_balance(client, symbol)
+
+        # Check if we have at least the expected quantity (with more conservative tolerance for fees/rounding)
+        # Use 95% tolerance to account for trading fees and rounding
+        if current_balance >= (expected_quantity * 0.95):
+            logging.info(
+                f"[{symbol}] Balance verified: {current_balance:.6f} {base_asset} (expected: {expected_quantity:.6f})")
+            return True, current_balance
+
+        if attempt < max_attempts - 1:  # Don't sleep on the last attempt
+            logging.info(f"[{symbol}] Balance not updated yet (attempt {attempt + 1}/{max_attempts}). "
+                         f"Current: {current_balance:.6f}, Expected: {expected_quantity:.6f}. Waiting {delay}s...")
+            time.sleep(delay)
+
+    logging.warning(f"[{symbol}] Balance not updated after {max_attempts} attempts. "
+                    f"Current: {current_balance:.6f}, Expected: {expected_quantity:.6f}")
+    return False, current_balance
+
+
 def check_active_trades_status(client):
     """Check status of active OCO orders and remove completed ones."""
     global active_trades
@@ -266,14 +332,14 @@ def validate_trade_amount(client, symbol, trade_amount_usdt, current_price):
         filters = get_symbol_filters(client, symbol)
         if not filters:
             return False, "Could not get symbol filters"
-        
+
         min_notional = get_min_notional(filters)
         quantity = trade_amount_usdt / current_price
         trade_value = quantity * current_price
-        
+
         if trade_value < min_notional:
             return False, f"Trade value ${trade_value:.2f} below minimum notional ${min_notional:.2f}"
-        
+
         return True, f"Trade value ${trade_value:.2f} meets minimum notional ${min_notional:.2f}"
     except Exception as e:
         return False, f"Error validating trade amount: {e}"
@@ -306,6 +372,37 @@ def get_min_notional(filters):
     return 10.0  # Default fallback for most Binance symbols
 
 
+def format_value_safe(value, filters, filter_type, key, round_down=False):
+    """Generic function to format price or quantity based on symbol filters.
+
+    Args:
+        value: The value to format
+        filters: Exchange filters
+        filter_type: Type of filter (e.g., 'LOT_SIZE', 'PRICE_FILTER')
+        key: Key to extract from filter (e.g., 'stepSize', 'tickSize')
+        round_down: If True, always round down instead of using standard rounding
+    """
+    size = None
+    for f in filters:
+        if f['filterType'] == filter_type:
+            size = float(f[key])
+            break
+
+    if size is not None and size > 0:
+        if round_down:
+            # Always round down for quantities to ensure we never exceed balance
+            import math
+            precision = int(round(-math.log(size, 10), 0))
+            factor = 10 ** precision
+            rounded_value = math.floor(value * factor) / factor
+            return f"{rounded_value:.{precision}f}"
+        else:
+            # Standard rounding for prices
+            precision = int(round(-math.log(size, 10), 0))
+            return f"{value:.{precision}f}"
+    return str(value)
+
+
 def format_value(value, filters, filter_type, key):
     """Generic function to format price or quantity based on symbol filters."""
     size = None
@@ -332,13 +429,15 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
         # Get minimum notional value requirement
         min_notional = get_min_notional(filters)
         trade_value = quantity * entry_price
-        
+
         # Check if trade value meets minimum notional requirement
         if trade_value < min_notional:
             # Adjust quantity to meet minimum notional with 5% buffer
             required_quantity = (min_notional * 1.05) / entry_price
-            logging.warning(f"[{symbol}] Trade value ${trade_value:.2f} below minimum notional ${min_notional:.2f}")
-            logging.info(f"[{symbol}] Adjusting quantity from {quantity:.6f} to {required_quantity:.6f}")
+            logging.warning(
+                f"[{symbol}] Trade value ${trade_value:.2f} below minimum notional ${min_notional:.2f}")
+            logging.info(
+                f"[{symbol}] Adjusting quantity from {quantity:.6f} to {required_quantity:.6f}")
             quantity = required_quantity
             trade_value = quantity * entry_price
 
@@ -355,7 +454,8 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
         # Final validation - ensure the formatted values still meet notional requirements
         final_trade_value = float(formatted_quantity) * entry_price
         if final_trade_value < min_notional:
-            logging.error(f"[{symbol}] Final trade value ${final_trade_value:.2f} still below minimum notional ${min_notional:.2f} after formatting")
+            logging.error(
+                f"[{symbol}] Final trade value ${final_trade_value:.2f} still below minimum notional ${min_notional:.2f} after formatting")
             return
 
         logging.info(f"[{symbol}] Trade details:")
@@ -373,11 +473,58 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
         logging.info(
             f"[{symbol}] MARKET BUY successful. Order ID: {buy_order['orderId']}")
 
-        logging.info(f"[{symbol}] Placing OCO SELL order...")
+        # Get the actual executed quantity from the buy order
+        executed_quantity = get_executed_quantity_from_order(buy_order)
+        if executed_quantity:
+            logging.info(
+                f"[{symbol}] Actual executed quantity: {executed_quantity:.8f}")
+            expected_balance = executed_quantity
+        else:
+            logging.warning(
+                f"[{symbol}] Using requested quantity as fallback: {formatted_quantity}")
+            expected_balance = float(formatted_quantity)
+
+        # Wait for balance to be updated before placing OCO order
+        logging.info(f"[{symbol}] Verifying balance update...")
+        balance_updated, actual_balance = wait_for_balance_update(
+            client, symbol, expected_balance)
+
+        if not balance_updated:
+            logging.error(
+                f"[{symbol}] Balance verification failed. Cannot place OCO order.")
+            logging.error(
+                f"[{symbol}] You may need to manually place a sell order for the purchased {symbol}")
+            return
+
+        # Use conservative quantity for OCO order - account for potential fees and rounding
+        # Use 99.5% of actual balance to ensure we don't exceed available balance
+        conservative_quantity = actual_balance * 0.995
+
+        # Re-format the conservative quantity using safe rounding (always round down)
+        oco_quantity_formatted = format_value_safe(
+            conservative_quantity, filters, 'LOT_SIZE', 'stepSize', round_down=True)
+
+        logging.info(f"[{symbol}] Balance check:")
+        logging.info(f"  - Actual balance: {actual_balance:.8f}")
+        logging.info(f"  - Original quantity: {formatted_quantity}")
+        logging.info(f"  - Conservative quantity: {conservative_quantity:.8f}")
+        logging.info(f"  - Final OCO quantity: {oco_quantity_formatted}")
+
+        # Final validation before placing order
+        final_oco_qty = float(oco_quantity_formatted)
+        if final_oco_qty > actual_balance:
+            logging.error(
+                f"[{symbol}] Final OCO quantity ({final_oco_qty:.8f}) still exceeds balance ({actual_balance:.8f})")
+            logging.error(
+                f"[{symbol}] This should not happen with round-down formatting. Aborting OCO order.")
+            return
+
+        logging.info(
+            f"[{symbol}] Placing OCO SELL order for {oco_quantity_formatted} units...")
         oco_order = client.new_oco_order(
             symbol=symbol,
             side='SELL',
-            quantity=formatted_quantity,
+            quantity=oco_quantity_formatted,
             price=formatted_profit_price,
             stopPrice=formatted_stop_price,
             stopLimitPrice=stop_limit_price,
@@ -399,8 +546,10 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
     except ClientError as error:
         error_msg = str(error)
         if "NOTIONAL" in error_msg:
-            logging.error(f"[{symbol}] NOTIONAL ERROR: Trade value too small. Current trade value: ${trade_value:.2f}, Required minimum: ${min_notional:.2f}")
-            logging.error(f"[{symbol}] Consider increasing TRADE_AMOUNT_USDT in your .env file to at least ${min_notional * 1.1:.2f}")
+            logging.error(
+                f"[{symbol}] NOTIONAL ERROR: Trade value too small. Current trade value: ${trade_value:.2f}, Required minimum: ${min_notional:.2f}")
+            logging.error(
+                f"[{symbol}] Consider increasing TRADE_AMOUNT_USDT in your .env file to at least ${min_notional * 1.1:.2f}")
         else:
             logging.error(f"[{symbol}] TRADE EXECUTION FAILED: {error}")
     except Exception as e:
@@ -473,13 +622,16 @@ def main():
                     # Validate trade amount meets minimum notional requirements
                     is_valid, validation_msg = validate_trade_amount(
                         client, symbol, TRADE_AMOUNT_USDT, current_price)
-                    
+
                     if not is_valid:
-                        logging.warning(f"[{symbol}] Trade validation failed: {validation_msg}")
-                        logging.warning(f"[{symbol}] Consider increasing TRADE_AMOUNT_USDT to at least ${get_min_notional(get_symbol_filters(client, symbol)) * 1.1:.2f}")
+                        logging.warning(
+                            f"[{symbol}] Trade validation failed: {validation_msg}")
+                        logging.warning(
+                            f"[{symbol}] Consider increasing TRADE_AMOUNT_USDT to at least ${get_min_notional(get_symbol_filters(client, symbol)) * 1.1:.2f}")
                         continue
 
-                    logging.info(f"[{symbol}] Trade validation passed: {validation_msg}")
+                    logging.info(
+                        f"[{symbol}] Trade validation passed: {validation_msg}")
 
                     # --- AUTOMATED EXECUTION WITH BALANCE CHECK ---
                     logging.info("Checking account balance before trading...")

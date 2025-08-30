@@ -125,7 +125,19 @@ uv run python trading_bot.py
 - Minimum balance checks before trading
 - One active trade per symbol maximum
 - Automatic OCO orders (take profit + stop loss)
+- **Balance verification after buy orders** - Ensures asset balance is updated before placing OCO
+- Minimum notional value validation
+- Automatic quantity adjustment for exchange requirements
 - Configurable trade amounts and risk parameters
+
+### 🔍 **Advanced Safety Features**
+
+- **Balance Verification**: After each market buy order, the bot waits and verifies that the purchased asset balance has been properly updated before placing the OCO sell order
+- **Retry Mechanism**: Up to 10 attempts with 3-second delays to ensure balance synchronization
+- **Graceful Failure Handling**: If balance verification fails, the trade is logged and manual intervention is suggested
+- **Actual Balance Usage**: OCO orders use the verified actual balance rather than theoretical quantities
+- **Safe Quantity Formatting**: Uses round-down formatting for sell quantities to ensure we never exceed available balance
+- **Executed Quantity Tracking**: Uses actual executed quantity from buy orders instead of requested quantity
 
 ## Configuration
 
