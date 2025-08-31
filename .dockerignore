@@ -45,16 +45,15 @@ env/
 ehthumbs.db
 Thumbs.db
 
-# Project specific
+# Project specific - runtime files (but include structure)
 active_trades.txt
-data/
-logs/
-*.log
+logs/*.log
 
-# Docker
-Dockerfile
-docker-compose.yml
+# Docker build context exclusions
 .dockerignore
+docker-compose.yml
+docker.sh
 
-# Documentation
-README.md
+# Development files
+.env.test
+check_notional.py
