@@ -33,6 +33,7 @@ import json
 from binance.spot import Spot as Client
 from binance.error import ClientError
 from dotenv import load_dotenv
+from strategies import EMACrossStrategy
 
 # Load environment variables from .env file
 load_dotenv()
@@ -109,6 +110,9 @@ def clear_active_trades_file():
 # Load active trades on module import
 load_active_trades()
 
+# Initialize trading strategy
+trading_strategy = EMACrossStrategy()
+
 # ======================================================================================
 # SECTION 1: DATA FETCHING AND ANALYSIS
 # ======================================================================================
@@ -165,33 +169,8 @@ def analyze_data(df, swing_period=50):
 # SECTION 2: DECISION MAKING LOGIC
 # ======================================================================================
 
-
-def check_buy_signal(symbol, analysis, current_price):
-    """
-    Checks if the current market data constitutes a BUY signal based on our strategy.
-
-    STRATEGY RULES:
-    1. Trend Confirmation: Price must be above the 50-EMA.
-    2. Bullish Momentum: The fast 9-EMA must be above the medium 21-EMA.
-    3. Healthy Momentum: RSI must be above 50 (bullish) but below 70 (not overbought).
-    4. Good Entry: Price must be relatively close to the 21-EMA to avoid buying at the top.
-    """
-    if not all(k in analysis for k in ['50_EMA', '9_EMA', '21_EMA', 'RSI_14']):
-        return False
-
-    price_above_50ema = current_price > analysis['50_EMA']
-    emas_in_uptrend = analysis['9_EMA'] > analysis['21_EMA']
-    rsi_is_healthy = 50 < analysis['RSI_14'] < 70
-
-    # Check if price is within 2% of the 21-EMA (our support level)
-    price_near_support = (
-        abs(current_price - analysis['21_EMA']) / analysis['21_EMA']) < 0.02
-
-    if price_above_50ema and emas_in_uptrend and rsi_is_healthy and price_near_support:
-        logging.info(f"[{symbol}] BUY SIGNAL FOUND! All conditions met.")
-        return True
-
-    return False
+# The check_buy_signal function has been moved to strategies/ema_cross_strategy.py
+# and is now accessed through the trading_strategy object initialized above.
 
 # ======================================================================================
 # SECTION 3: ACCOUNT & TRADE EXECUTION
@@ -624,7 +603,7 @@ def main():
                 current_price = df['Close'].iloc[-1]
                 analysis = analyze_data(df)
 
-                if analysis and check_buy_signal(symbol, analysis, current_price):
+                if analysis and trading_strategy.check_buy_signal(symbol, analysis, current_price):
                     # A valid signal was found, prepare the trade plan
                     # Place SL slightly below the swing low
                     stop_loss = analysis['Last_Swing_Low'] * 0.998
