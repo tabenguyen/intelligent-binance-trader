@@ -83,6 +83,22 @@ ENABLE_VOLUME_FILTER = os.getenv("ENABLE_VOLUME_FILTER", "True").lower() in ("tr
 # Minimum volume ratio (current volume vs 20-period average)
 MIN_VOLUME_RATIO = float(os.getenv("MIN_VOLUME_RATIO", "1.2"))  # 20% above average
 
+# --- Advanced Exit Strategy Configuration ---
+# Enable/disable advanced exit strategies
+ENABLE_ADVANCED_EXITS = os.getenv("ENABLE_ADVANCED_EXITS", "True").lower() in ("true", "1", "yes")
+# Enable/disable trailing stop loss
+ENABLE_TRAILING_STOP = os.getenv("ENABLE_TRAILING_STOP", "True").lower() in ("true", "1", "yes")
+# Enable/disable partial take profits
+ENABLE_PARTIAL_PROFITS = os.getenv("ENABLE_PARTIAL_PROFITS", "True").lower() in ("true", "1", "yes")
+# ATR multiplier for trailing stop (e.g., 2.0 means 2 * ATR below current price)
+TRAILING_STOP_ATR_MULTIPLIER = float(os.getenv("TRAILING_STOP_ATR_MULTIPLIER", "2.0"))
+# First take profit level (risk:reward ratio for partial exit)
+PARTIAL_TP1_RATIO = float(os.getenv("PARTIAL_TP1_RATIO", "1.5"))  # 1.5:1 R:R
+# Second take profit level (for remaining position)
+PARTIAL_TP2_RATIO = float(os.getenv("PARTIAL_TP2_RATIO", "3.0"))  # 3:1 R:R
+# Percentage to sell at first take profit
+PARTIAL_TP1_PERCENTAGE = float(os.getenv("PARTIAL_TP1_PERCENTAGE", "0.5"))  # 50%
+
 # --- API Configuration ---
 API_KEY = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_API_SECRET")
@@ -93,7 +109,9 @@ logging.basicConfig(level=logging.INFO,
 
 # --- Active Trades Tracking ---
 # Dictionary to track active OCO orders by symbol with detailed trade information
-# Structure: {symbol: {order_list_id, entry_price, quantity, trade_amount_usdt, timestamp}}
+# Structure: {symbol: {order_list_id, entry_price, quantity, trade_amount_usdt, timestamp, 
+#                     stop_loss, take_profit, current_atr, trailing_stop_price, 
+#                     tp1_executed, tp2_target, remaining_quantity, advanced_exit_enabled}}
 active_trades = {}
 ACTIVE_TRADES_FILE = 'active_trades.txt'
 
@@ -516,6 +534,365 @@ def log_pnl_to_file(symbol, entry_price, exit_price, quantity, entry_value,
         logging.error(f"[{symbol}] Error logging P&L to file: {e}")
 
 
+def manage_advanced_exit_strategies(client):
+    """
+    Manage advanced exit strategies for active trades including:
+    1. Trailing stop loss based on ATR
+    2. Partial take profits at TP1 and TP2 levels
+    """
+    if not ENABLE_ADVANCED_EXITS or not active_trades:
+        return
+    
+    logging.info("🔄 Managing advanced exit strategies...")
+    
+    for symbol, trade_info in list(active_trades.items()):
+        try:
+            # Skip if not using advanced exits or old format
+            if (not isinstance(trade_info, dict) or 
+                not trade_info.get('advanced_exit_enabled', False)):
+                continue
+            
+            # Get current market data for trailing stop calculations
+            current_df = get_binance_data(client, symbol, interval='4h', limit=20)
+            if current_df is None:
+                continue
+            
+            # Calculate current ATR for trailing stop
+            current_df.ta.atr(length=14, append=True, col_names=('ATR_14',))
+            current_atr = current_df['ATR_14'].iloc[-1]
+            current_price = current_df['Close'].iloc[-1]
+            
+            # Update trade info
+            entry_price = trade_info['entry_price']
+            original_quantity = trade_info['quantity']
+            remaining_quantity = trade_info.get('remaining_quantity', original_quantity)
+            tp1_executed = trade_info.get('tp1_executed', False)
+            
+            # Calculate profit/loss metrics
+            unrealized_pnl = (current_price - entry_price) * remaining_quantity
+            risk_amount = (entry_price - trade_info['initial_stop_loss']) * original_quantity
+            current_rr_ratio = unrealized_pnl / risk_amount if risk_amount > 0 else 0
+            
+            logging.info(f"[{symbol}] 📊 Advanced Exit Analysis:")
+            logging.info(f"  Current Price: ${current_price:.4f}")
+            logging.info(f"  Entry Price: ${entry_price:.4f}")
+            logging.info(f"  Current R:R: {current_rr_ratio:.2f}")
+            logging.info(f"  Remaining Qty: {remaining_quantity:.6f}")
+            logging.info(f"  TP1 Executed: {tp1_executed}")
+            
+            # ═══════════════════════════════════════════════════════════════
+            # PARTIAL TAKE PROFIT 1 (TP1) - 50% at 1.5:1 R:R
+            # ═══════════════════════════════════════════════════════════════
+            if (ENABLE_PARTIAL_PROFITS and not tp1_executed and 
+                current_rr_ratio >= PARTIAL_TP1_RATIO):
+                
+                execute_partial_take_profit_1(client, symbol, trade_info, current_price)
+            
+            # ═══════════════════════════════════════════════════════════════
+            # TRAILING STOP LOSS MANAGEMENT
+            # ═══════════════════════════════════════════════════════════════
+            if ENABLE_TRAILING_STOP and remaining_quantity > 0:
+                update_trailing_stop_loss(client, symbol, trade_info, current_price, current_atr)
+            
+            # ═══════════════════════════════════════════════════════════════
+            # PARTIAL TAKE PROFIT 2 (TP2) - Remaining 50% at 3:1 R:R
+            # ═══════════════════════════════════════════════════════════════
+            if (ENABLE_PARTIAL_PROFITS and tp1_executed and 
+                remaining_quantity > 0 and current_rr_ratio >= PARTIAL_TP2_RATIO):
+                
+                execute_partial_take_profit_2(client, symbol, trade_info, current_price)
+            
+        except Exception as e:
+            logging.error(f"[{symbol}] Error in advanced exit management: {e}")
+
+
+def execute_partial_take_profit_1(client, symbol, trade_info, current_price):
+    """Execute first partial take profit (50% at 1.5:1 R:R) and move stop to breakeven."""
+    try:
+        original_quantity = trade_info['quantity']
+        tp1_quantity = original_quantity * PARTIAL_TP1_PERCENTAGE
+        remaining_quantity = original_quantity - tp1_quantity
+        
+        # Format quantity for the exchange
+        filters = get_symbol_filters(client, symbol)
+        if not filters:
+            logging.error(f"[{symbol}] Cannot get filters for TP1 execution")
+            return
+        
+        formatted_tp1_qty = format_value_safe(tp1_quantity, filters, 'LOT_SIZE', 'stepSize', round_down=True)
+        formatted_price = format_value(current_price, filters, 'PRICE_FILTER', 'tickSize')
+        
+        logging.info(f"[{symbol}] 🎯 EXECUTING PARTIAL TAKE PROFIT 1")
+        logging.info(f"  Selling {PARTIAL_TP1_PERCENTAGE*100}% at 1.5:1 R:R")
+        logging.info(f"  Quantity: {formatted_tp1_qty}")
+        logging.info(f"  Price: ${formatted_price}")
+        
+        # Execute the partial sell order
+        tp1_order = client.new_order(
+            symbol=symbol,
+            side='SELL',
+            type='MARKET',
+            quantity=formatted_tp1_qty
+        )
+        
+        # Calculate profit from TP1
+        entry_price = trade_info['entry_price']
+        tp1_profit = (current_price - entry_price) * float(formatted_tp1_qty)
+        
+        logging.info(f"[{symbol}] ✅ TP1 EXECUTED SUCCESSFULLY!")
+        logging.info(f"  Profit Secured: ${tp1_profit:+.2f}")
+        logging.info(f"  Remaining Position: {remaining_quantity:.6f}")
+        
+        # Update trade info
+        trade_info['tp1_executed'] = True
+        trade_info['tp1_profit'] = tp1_profit
+        trade_info['remaining_quantity'] = remaining_quantity
+        trade_info['tp1_execution_time'] = time.time()
+        
+        # Cancel existing OCO order since we're managing exits manually now
+        try:
+            client.cancel_oco_order(symbol=symbol, orderListId=trade_info['order_list_id'])
+            logging.info(f"[{symbol}] Cancelled original OCO order for manual exit management")
+        except Exception as e:
+            logging.warning(f"[{symbol}] Could not cancel OCO order: {e}")
+        
+        # Move stop loss to breakeven for remaining position
+        move_stop_to_breakeven(client, symbol, trade_info)
+        
+        # Save updated trade info
+        save_active_trades()
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error executing TP1: {e}")
+
+
+def execute_partial_take_profit_2(client, symbol, trade_info, current_price):
+    """Execute second partial take profit (remaining position at 3:1 R:R)."""
+    try:
+        remaining_quantity = trade_info.get('remaining_quantity', 0)
+        if remaining_quantity <= 0:
+            return
+        
+        # Format quantity for the exchange
+        filters = get_symbol_filters(client, symbol)
+        if not filters:
+            logging.error(f"[{symbol}] Cannot get filters for TP2 execution")
+            return
+        
+        formatted_qty = format_value_safe(remaining_quantity, filters, 'LOT_SIZE', 'stepSize', round_down=True)
+        formatted_price = format_value(current_price, filters, 'PRICE_FILTER', 'tickSize')
+        
+        logging.info(f"[{symbol}] 🎯 EXECUTING PARTIAL TAKE PROFIT 2")
+        logging.info(f"  Selling remaining position at 3:1 R:R")
+        logging.info(f"  Quantity: {formatted_qty}")
+        logging.info(f"  Price: ${formatted_price}")
+        
+        # Execute the final sell order
+        tp2_order = client.new_order(
+            symbol=symbol,
+            side='SELL',
+            type='MARKET',
+            quantity=formatted_qty
+        )
+        
+        # Calculate total trade profit
+        entry_price = trade_info['entry_price']
+        tp2_profit = (current_price - entry_price) * float(formatted_qty)
+        total_profit = trade_info.get('tp1_profit', 0) + tp2_profit
+        
+        logging.info(f"[{symbol}] ✅ TP2 EXECUTED - TRADE COMPLETED!")
+        logging.info(f"  TP2 Profit: ${tp2_profit:+.2f}")
+        logging.info(f"  Total Trade Profit: ${total_profit:+.2f}")
+        
+        # Log final trade summary
+        log_advanced_exit_summary(symbol, trade_info, tp2_profit, total_profit)
+        
+        # Remove from active trades
+        del active_trades[symbol]
+        save_active_trades()
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error executing TP2: {e}")
+
+
+def update_trailing_stop_loss(client, symbol, trade_info, current_price, current_atr):
+    """Update trailing stop loss based on ATR."""
+    try:
+        entry_price = trade_info['entry_price']
+        current_trailing_stop = current_price - (current_atr * TRAILING_STOP_ATR_MULTIPLIER)
+        previous_trailing_stop = trade_info.get('trailing_stop_price', trade_info.get('initial_stop_loss', 0))
+        
+        # Trailing stop only moves up, never down
+        new_trailing_stop = max(current_trailing_stop, previous_trailing_stop)
+        
+        # Ensure stop is not above current price
+        new_trailing_stop = min(new_trailing_stop, current_price * 0.995)  # 0.5% buffer
+        
+        # Only update if the stop has moved up significantly (0.1% or more)
+        if new_trailing_stop > previous_trailing_stop * 1.001:
+            trade_info['trailing_stop_price'] = new_trailing_stop
+            
+            distance_from_entry = ((new_trailing_stop - entry_price) / entry_price) * 100
+            distance_from_current = ((current_price - new_trailing_stop) / current_price) * 100
+            
+            logging.info(f"[{symbol}] 📈 TRAILING STOP UPDATED")
+            logging.info(f"  New Stop: ${new_trailing_stop:.4f}")
+            logging.info(f"  Distance from Entry: {distance_from_entry:+.2f}%")
+            logging.info(f"  Distance from Current: {distance_from_current:.2f}%")
+            logging.info(f"  ATR: {current_atr:.4f} (×{TRAILING_STOP_ATR_MULTIPLIER})")
+            
+            # Check if we should execute stop loss
+            if current_price <= new_trailing_stop:
+                execute_trailing_stop_loss(client, symbol, trade_info, current_price)
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error updating trailing stop: {e}")
+
+
+def move_stop_to_breakeven(client, symbol, trade_info):
+    """Move stop loss to breakeven after TP1 execution."""
+    try:
+        entry_price = trade_info['entry_price']
+        breakeven_stop = entry_price * 1.001  # Slightly above entry for fees
+        
+        trade_info['trailing_stop_price'] = breakeven_stop
+        trade_info['breakeven_set'] = True
+        
+        logging.info(f"[{symbol}] 🛡️ STOP MOVED TO BREAKEVEN")
+        logging.info(f"  Breakeven Stop: ${breakeven_stop:.4f}")
+        logging.info(f"  Remaining position is now RISK-FREE!")
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error moving stop to breakeven: {e}")
+
+
+def execute_trailing_stop_loss(client, symbol, trade_info, current_price):
+    """Execute trailing stop loss when price hits the trailing stop."""
+    try:
+        remaining_quantity = trade_info.get('remaining_quantity', trade_info['quantity'])
+        
+        # Format quantity for the exchange
+        filters = get_symbol_filters(client, symbol)
+        if not filters:
+            logging.error(f"[{symbol}] Cannot get filters for stop loss execution")
+            return
+        
+        formatted_qty = format_value_safe(remaining_quantity, filters, 'LOT_SIZE', 'stepSize', round_down=True)
+        
+        logging.info(f"[{symbol}] 🛑 EXECUTING TRAILING STOP LOSS")
+        logging.info(f"  Stop Price Hit: ${trade_info['trailing_stop_price']:.4f}")
+        logging.info(f"  Current Price: ${current_price:.4f}")
+        logging.info(f"  Quantity: {formatted_qty}")
+        
+        # Execute the stop loss order
+        stop_order = client.new_order(
+            symbol=symbol,
+            side='SELL',
+            type='MARKET',
+            quantity=formatted_qty
+        )
+        
+        # Calculate final profit/loss
+        entry_price = trade_info['entry_price']
+        stop_pnl = (current_price - entry_price) * float(formatted_qty)
+        total_profit = trade_info.get('tp1_profit', 0) + stop_pnl
+        
+        logging.info(f"[{symbol}] ✅ TRAILING STOP EXECUTED - TRADE COMPLETED!")
+        logging.info(f"  Stop Loss P&L: ${stop_pnl:+.2f}")
+        logging.info(f"  Total Trade Profit: ${total_profit:+.2f}")
+        
+        # Log final trade summary
+        log_advanced_exit_summary(symbol, trade_info, stop_pnl, total_profit)
+        
+        # Remove from active trades
+        del active_trades[symbol]
+        save_active_trades()
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error executing trailing stop: {e}")
+
+
+def log_advanced_exit_summary(symbol, trade_info, final_exit_pnl, total_profit):
+    """Log comprehensive summary of advanced exit strategy performance."""
+    try:
+        entry_price = trade_info['entry_price']
+        original_quantity = trade_info['quantity']
+        tp1_executed = trade_info.get('tp1_executed', False)
+        tp1_profit = trade_info.get('tp1_profit', 0)
+        
+        logging.info(f"[{symbol}] ═══════════════════════════════════════")
+        logging.info(f"[{symbol}] ADVANCED EXIT STRATEGY COMPLETED")
+        logging.info(f"[{symbol}] ═══════════════════════════════════════")
+        logging.info(f"[{symbol}] Entry Price: ${entry_price:.4f}")
+        logging.info(f"[{symbol}] Original Quantity: {original_quantity:.6f}")
+        
+        if tp1_executed:
+            tp1_qty = original_quantity * PARTIAL_TP1_PERCENTAGE
+            remaining_qty = original_quantity - tp1_qty
+            logging.info(f"[{symbol}] TP1 ({PARTIAL_TP1_PERCENTAGE*100}%): ${tp1_profit:+.2f}")
+            logging.info(f"[{symbol}] Final Exit ({(1-PARTIAL_TP1_PERCENTAGE)*100}%): ${final_exit_pnl:+.2f}")
+        else:
+            logging.info(f"[{symbol}] Single Exit: ${final_exit_pnl:+.2f}")
+        
+        logging.info(f"[{symbol}] Total Profit: ${total_profit:+.2f}")
+        
+        # Calculate performance metrics
+        trade_amount = trade_info.get('trade_amount_usdt', 0)
+        if trade_amount > 0:
+            roi_percentage = (total_profit / trade_amount) * 100
+            logging.info(f"[{symbol}] ROI: {roi_percentage:+.2f}%")
+        
+        logging.info(f"[{symbol}] ═══════════════════════════════════════")
+        
+        # Log to CSV file with advanced exit details
+        log_advanced_exit_to_file(symbol, trade_info, tp1_profit, final_exit_pnl, total_profit)
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error logging advanced exit summary: {e}")
+
+
+def log_advanced_exit_to_file(symbol, trade_info, tp1_profit, final_pnl, total_profit):
+    """Log advanced exit strategy results to CSV file."""
+    try:
+        import csv
+        from datetime import datetime
+        
+        exit_file = 'advanced_exit_log.csv'
+        file_exists = os.path.exists(exit_file)
+        
+        with open(exit_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            
+            # Write header if file doesn't exist
+            if not file_exists:
+                writer.writerow([
+                    'Timestamp', 'Symbol', 'Entry_Price', 'Original_Quantity',
+                    'TP1_Executed', 'TP1_Profit', 'Final_Exit_PnL', 'Total_Profit',
+                    'ROI_Percentage', 'Exit_Strategy'
+                ])
+            
+            # Calculate metrics
+            entry_price = trade_info['entry_price']
+            original_quantity = trade_info['quantity']
+            trade_amount = trade_info.get('trade_amount_usdt', 0)
+            roi_percentage = (total_profit / trade_amount * 100) if trade_amount > 0 else 0
+            tp1_executed = trade_info.get('tp1_executed', False)
+            exit_strategy = "Partial_TP1_TP2" if tp1_executed else "Single_Exit"
+            
+            # Write trade data
+            writer.writerow([
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                symbol, f"{entry_price:.4f}", f"{original_quantity:.6f}",
+                tp1_executed, f"{tp1_profit:.2f}", f"{final_pnl:.2f}",
+                f"{total_profit:.2f}", f"{roi_percentage:.2f}", exit_strategy
+            ])
+        
+        logging.info(f"[{symbol}] Advanced exit data logged to {exit_file}")
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error logging advanced exit to file: {e}")
+
+
 def check_active_trades_status(client):
     """Check status of active OCO orders and remove completed ones."""
     global active_trades
@@ -894,7 +1271,16 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
             'trade_amount_usdt': TRADE_AMOUNT_USDT,
             'timestamp': time.time(),
             'stop_loss': stop_loss,
-            'take_profit': take_profit
+            'take_profit': take_profit,
+            
+            # Advanced exit strategy metadata
+            'advanced_exit_enabled': ENABLE_ADVANCED_EXITS,
+            'initial_stop_loss': stop_loss,
+            'trailing_stop_price': stop_loss,
+            'remaining_quantity': executed_quantity if executed_quantity else float(formatted_quantity),
+            'tp1_executed': False,
+            'tp1_profit': 0,
+            'breakeven_set': False
         }
 
         logging.info(
@@ -955,6 +1341,10 @@ def main():
                 logging.info(
                     f"Checking status of {len(active_trades)} active trades...")
                 check_active_trades_status(client)
+                
+                # Manage advanced exit strategies (trailing stops, partial profits)
+                if ENABLE_ADVANCED_EXITS:
+                    manage_advanced_exit_strategies(client)
                 
                 # Display unrealized P&L for remaining active trades
                 if active_trades:
