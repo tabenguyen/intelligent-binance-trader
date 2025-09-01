@@ -107,6 +107,14 @@ PARTIAL_TP2_RATIO = float(os.getenv("PARTIAL_TP2_RATIO", "3.0"))  # 3:1 R:R
 # Percentage to sell at first take profit
 PARTIAL_TP1_PERCENTAGE = float(os.getenv("PARTIAL_TP1_PERCENTAGE", "0.5"))  # 50%
 
+# --- INTELLIGENT WATCHLIST SCANNER ---
+# Relative strength ranking configuration
+ENABLE_RELATIVE_STRENGTH_RANKING = os.getenv("ENABLE_RELATIVE_STRENGTH_RANKING", "true").lower() == "true"
+RELATIVE_STRENGTH_LOOKBACK_DAYS = int(os.getenv("RELATIVE_STRENGTH_LOOKBACK_DAYS", "14"))
+TOP_PERFORMERS_PERCENTAGE = float(os.getenv("TOP_PERFORMERS_PERCENTAGE", "25"))  # Only top 25%
+MIN_COINS_FOR_RANKING = int(os.getenv("MIN_COINS_FOR_RANKING", "5"))
+RANKING_UPDATE_FREQUENCY_HOURS = int(os.getenv("RANKING_UPDATE_FREQUENCY_HOURS", "4"))
+
 # --- API Configuration ---
 API_KEY = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_API_SECRET")
@@ -123,6 +131,11 @@ logging.basicConfig(level=logging.INFO,
 active_trades = {}
 ACTIVE_TRADES_FILE = 'active_trades.txt'
 
+# --- Intelligent Watchlist Scanner ---
+# Dictionary to track relative strength rankings and update timestamps
+relative_strength_rankings = {}
+last_ranking_update = 0
+
 
 def save_active_trades():
     """Save active trades dictionary to file."""
@@ -132,6 +145,184 @@ def save_active_trades():
         logging.debug(f"Active trades saved to {ACTIVE_TRADES_FILE}")
     except Exception as e:
         logging.error(f"Error saving active trades: {e}")
+
+
+def calculate_relative_strength_rankings(client, watchlist):
+    """
+    Calculate relative strength rankings for all coins in the watchlist.
+    
+    Returns:
+        dict: {symbol: {'performance_pct': float, 'rank': int, 'is_top_performer': bool}}
+    """
+    global relative_strength_rankings, last_ranking_update
+    
+    try:
+        current_time = time.time()
+        hours_since_update = (current_time - last_ranking_update) / 3600
+        
+        # Check if we need to update rankings
+        if (hours_since_update < RANKING_UPDATE_FREQUENCY_HOURS and 
+            relative_strength_rankings and 
+            len(relative_strength_rankings) == len(watchlist)):
+            return relative_strength_rankings
+        
+        if len(watchlist) < MIN_COINS_FOR_RANKING:
+            logging.warning(f"Insufficient coins for ranking: {len(watchlist)} < {MIN_COINS_FOR_RANKING}")
+            return {}
+        
+        logging.info(f"🔍 CALCULATING RELATIVE STRENGTH RANKINGS")
+        logging.info(f"  Lookback Period: {RELATIVE_STRENGTH_LOOKBACK_DAYS} days")
+        logging.info(f"  Analyzing {len(watchlist)} coins...")
+        
+        coin_performances = []
+        
+        # Calculate performance for each coin
+        for symbol in watchlist:
+            try:
+                # Get historical data for the lookback period
+                # Convert days to hours and get 4-hour candles
+                hours_lookback = RELATIVE_STRENGTH_LOOKBACK_DAYS * 24
+                candles_needed = max(int(hours_lookback / 4), 10)  # At least 10 candles
+                
+                df = get_binance_data(client, symbol, interval='4h', limit=candles_needed)
+                if df is None or len(df) < 5:
+                    logging.warning(f"[{symbol}] Insufficient data for ranking")
+                    continue
+                
+                # Calculate performance over the lookback period
+                start_price = df['Open'].iloc[0]
+                current_price = df['Close'].iloc[-1]
+                performance_pct = ((current_price - start_price) / start_price) * 100
+                
+                coin_performances.append({
+                    'symbol': symbol,
+                    'performance_pct': performance_pct,
+                    'start_price': start_price,
+                    'current_price': current_price
+                })
+                
+                logging.info(f"  [{symbol}] Performance: {performance_pct:+.2f}%")
+                
+            except Exception as e:
+                logging.error(f"[{symbol}] Error calculating performance: {e}")
+                continue
+        
+        if not coin_performances:
+            logging.error("No valid performance data calculated")
+            return {}
+        
+        # Sort by performance (highest first)
+        coin_performances.sort(key=lambda x: x['performance_pct'], reverse=True)
+        
+        # Calculate how many coins qualify as top performers
+        total_coins = len(coin_performances)
+        top_performers_count = max(1, int(total_coins * (TOP_PERFORMERS_PERCENTAGE / 100)))
+        
+        # Create rankings dictionary
+        new_rankings = {}
+        for i, coin_data in enumerate(coin_performances):
+            symbol = coin_data['symbol']
+            rank = i + 1
+            is_top_performer = rank <= top_performers_count
+            
+            new_rankings[symbol] = {
+                'performance_pct': coin_data['performance_pct'],
+                'rank': rank,
+                'is_top_performer': is_top_performer,
+                'start_price': coin_data['start_price'],
+                'current_price': coin_data['current_price']
+            }
+        
+        # Update global state
+        relative_strength_rankings = new_rankings
+        last_ranking_update = current_time
+        
+        # Log ranking results
+        logging.info(f"📊 RELATIVE STRENGTH RANKINGS UPDATED")
+        logging.info(f"  Total Coins Analyzed: {total_coins}")
+        logging.info(f"  Top Performers ({TOP_PERFORMERS_PERCENTAGE}%): {top_performers_count} coins")
+        logging.info(f"  Next Update: {RANKING_UPDATE_FREQUENCY_HOURS} hours")
+        
+        # Log top performers
+        logging.info(f"🏆 TOP PERFORMERS (Eligible for Trading):")
+        for symbol, data in new_rankings.items():
+            if data['is_top_performer']:
+                logging.info(f"  #{data['rank']} {symbol}: {data['performance_pct']:+.2f}%")
+        
+        # Log bottom performers (for information)
+        logging.info(f"📉 BOTTOM PERFORMERS (Excluded from Trading):")
+        bottom_count = 0
+        for symbol, data in sorted(new_rankings.items(), key=lambda x: x[1]['rank'], reverse=True):
+            if not data['is_top_performer'] and bottom_count < 5:  # Show worst 5
+                logging.info(f"  #{data['rank']} {symbol}: {data['performance_pct']:+.2f}%")
+                bottom_count += 1
+        
+        return new_rankings
+        
+    except Exception as e:
+        logging.error(f"Error calculating relative strength rankings: {e}")
+        return {}
+
+
+def is_symbol_top_performer(symbol, rankings=None):
+    """
+    Check if a symbol is in the top performers list.
+    
+    Args:
+        symbol: Trading pair symbol
+        rankings: Optional rankings dict (uses global if not provided)
+    
+    Returns:
+        bool: True if symbol is a top performer
+    """
+    if not ENABLE_RELATIVE_STRENGTH_RANKING:
+        return True  # All symbols eligible if ranking disabled
+    
+    if rankings is None:
+        rankings = relative_strength_rankings
+    
+    if not rankings or symbol not in rankings:
+        return False
+    
+    return rankings[symbol]['is_top_performer']
+
+
+def get_symbol_ranking_info(symbol, rankings=None):
+    """
+    Get detailed ranking information for a symbol.
+    
+    Returns:
+        dict: Ranking information or None if not found
+    """
+    if rankings is None:
+        rankings = relative_strength_rankings
+    
+    return rankings.get(symbol, None)
+
+
+def log_watchlist_scanning_summary(watchlist, rankings):
+    """Log summary of intelligent watchlist scanning results."""
+    try:
+        if not ENABLE_RELATIVE_STRENGTH_RANKING or not rankings:
+            logging.info(f"🔍 WATCHLIST SCAN: All {len(watchlist)} coins eligible (ranking disabled)")
+            return
+        
+        eligible_count = sum(1 for data in rankings.values() if data['is_top_performer'])
+        excluded_count = len(rankings) - eligible_count
+        
+        logging.info(f"🎯 INTELLIGENT WATCHLIST SCAN SUMMARY:")
+        logging.info(f"  Total Coins: {len(watchlist)}")
+        logging.info(f"  Eligible for Trading: {eligible_count} (top {TOP_PERFORMERS_PERCENTAGE}%)")
+        logging.info(f"  Excluded (weak performers): {excluded_count}")
+        logging.info(f"  Lookback Period: {RELATIVE_STRENGTH_LOOKBACK_DAYS} days")
+        
+        if eligible_count > 0:
+            avg_performance = sum(data['performance_pct'] for data in rankings.values() 
+                                if data['is_top_performer']) / eligible_count
+            logging.info(f"  Average Performance (Top): {avg_performance:+.2f}%")
+        
+    except Exception as e:
+        logging.error(f"Error logging watchlist summary: {e}")
 
 
 def load_active_trades():
@@ -1269,7 +1460,7 @@ def place_limit_buy_with_retry(client, symbol, quantity, target_price, filters, 
     return None
 
 
-def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_profit, trade_amount_usdt=None, risk_amount=None, rr_ratio=None, risk_method=None):
+def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_profit, trade_amount_usdt=None, risk_amount=None, rr_ratio=None, risk_method=None, ranking_info=None):
     """Places a market buy order and then an OCO sell order."""
     global active_trades
 
@@ -1418,7 +1609,13 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
             'risk_amount': risk_amount,
             'rr_ratio': rr_ratio,
             'risk_management_method': risk_method or 'Legacy',
-            'position_sizing_used': 'Dynamic' if trade_amount_usdt != TRADE_AMOUNT_USDT else 'Fixed'
+            'position_sizing_used': 'Dynamic' if trade_amount_usdt != TRADE_AMOUNT_USDT else 'Fixed',
+            
+            # Intelligent watchlist scanner metadata
+            'relative_strength_rank': ranking_info['rank'] if ranking_info else None,
+            'relative_strength_performance': ranking_info['performance_pct'] if ranking_info else None,
+            'is_top_performer': ranking_info['is_top_performer'] if ranking_info else False,
+            'ranking_lookback_days': RELATIVE_STRENGTH_LOOKBACK_DAYS if ranking_info else None
         }
 
         logging.info(
@@ -1488,8 +1685,36 @@ def main():
                 if active_trades:
                     display_active_trades_pnl(client)
 
+            # ═══════════════════════════════════════════════════════════════
+            # INTELLIGENT WATCHLIST SCANNER
+            # ═══════════════════════════════════════════════════════════════
+            
+            # Calculate relative strength rankings for all watchlist coins
+            rankings = calculate_relative_strength_rankings(client, watchlist)
+            log_watchlist_scanning_summary(watchlist, rankings)
+
             for symbol in watchlist:
                 logging.info(f"--- Analyzing {symbol} ---")
+
+                # ═══════════════════════════════════════════════════════════════
+                # INTELLIGENT WATCHLIST FILTERING
+                # ═══════════════════════════════════════════════════════════════
+                
+                # Check if symbol is a top performer (relative strength filter)
+                if not is_symbol_top_performer(symbol, rankings):
+                    ranking_info = get_symbol_ranking_info(symbol, rankings)
+                    if ranking_info:
+                        logging.info(f"[{symbol}] ❌ EXCLUDED - Weak relative strength")
+                        logging.info(f"  Rank: #{ranking_info['rank']} | Performance: {ranking_info['performance_pct']:+.2f}%")
+                        logging.info(f"  Only trading top {TOP_PERFORMERS_PERCENTAGE}% performers")
+                    else:
+                        logging.info(f"[{symbol}] ❌ EXCLUDED - No ranking data available")
+                    continue
+                else:
+                    ranking_info = get_symbol_ranking_info(symbol, rankings)
+                    if ranking_info:
+                        logging.info(f"[{symbol}] ✅ TOP PERFORMER - Eligible for trading")
+                        logging.info(f"  Rank: #{ranking_info['rank']} | Performance: {ranking_info['performance_pct']:+.2f}%")
 
                 # Skip symbols that already have active OCO orders
                 if is_symbol_actively_trading(symbol):
@@ -1597,11 +1822,12 @@ def main():
                         f"[{symbol}] Trade validation passed: {validation_msg}")
 
                     # --- EXECUTE TRADE (Balance already verified) ---
+                    ranking_info = get_symbol_ranking_info(symbol, rankings)
                     logging.info(
                         f"USDT balance ({usdt_balance:.2f}) is above minimum ({MIN_USDT_BALANCE:.2f}). Executing trade.")
                     execute_oco_trade(
                         client, symbol, quantity_to_buy, current_price, stop_loss, take_profit,
-                        trade_amount_usdt, actual_risk, calculated_rr, risk_management_method)
+                        trade_amount_usdt, actual_risk, calculated_rr, risk_management_method, ranking_info)
                     # Wait after a trade to prevent rapid-fire trades on the same signal
                     logging.info(
                         "Trade executed. Pausing for next scan cycle.")
