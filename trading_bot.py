@@ -1,5 +1,5 @@
 #
-# Automated Trading Scanner & Executor
+# Automated Trading Scanner & Executor - 4-Hour Timeframe Strategy
 #
 # -------------------------------------------------------------------------------------
 # CRITICAL SECURITY & RISK WARNING:
@@ -12,7 +12,17 @@
 #    variables as shown.
 # 5. This version trades AUTOMATICALLY without confirmation. It will only trade if
 #    your USDT balance is above the MIN_USDT_BALANCE threshold.
+# 6. Updated for 4-HOUR timeframe with enhanced technical analysis and risk management.
 # -------------------------------------------------------------------------------------
+#
+# 4-Hour Strategy Features:
+# - Uses 4-hour candlestick data for more stable signals
+# - Enhanced EMA system (12, 26, 55) optimized for swing trading
+# - MACD and Bollinger Bands confirmation for better entries
+# - Higher risk-reward ratio (2:1) suitable for longer timeframes
+# - More conservative stop-loss placement using swing lows and EMA support
+# - Hourly scans instead of 15-minute scans for efficiency
+# - Increased trade amounts and minimum balance for larger position sizes
 #
 # How to Run:
 # 1. Make sure you have the 'watchlist.txt' file in the same directory.
@@ -44,18 +54,18 @@ USE_TESTNET = os.getenv("USE_TESTNET", "True").lower() in ("true", "1", "yes")
 
 # --- Trade Configuration ---
 # Amount in USDT to spend on each trade.
-TRADE_AMOUNT_USDT = float(os.getenv("TRADE_AMOUNT_USDT", "15.0"))
-# Desired Risk-to-Reward ratio for Take-Profit calculation. (e.g., 1.5 means you aim to win 1.5x what you risk)
-RISK_REWARD_RATIO = float(os.getenv("RISK_REWARD_RATIO", "1.5"))
+TRADE_AMOUNT_USDT = float(os.getenv("TRADE_AMOUNT_USDT", "25.0"))  # Increased for 4H timeframe
+# Desired Risk-to-Reward ratio for Take-Profit calculation. (4H timeframe typically allows for higher R:R)
+RISK_REWARD_RATIO = float(os.getenv("RISK_REWARD_RATIO", "2.0"))  # Increased from 1.5 to 2.0
 # --- NEW: Balance Safety Check ---
 # The bot will only place trades if your free USDT balance is above this amount.
-MIN_USDT_BALANCE = float(os.getenv("MIN_USDT_BALANCE", "100.0"))
+MIN_USDT_BALANCE = float(os.getenv("MIN_USDT_BALANCE", "150.0"))  # Increased for larger trades
 
 # --- Limit Order Configuration ---
-# Maximum number of retries for limit buy orders
-MAX_LIMIT_ORDER_RETRIES = int(os.getenv("MAX_LIMIT_ORDER_RETRIES", "10"))
-# Delay between limit order retries in seconds
-LIMIT_ORDER_RETRY_DELAY = int(os.getenv("LIMIT_ORDER_RETRY_DELAY", "5"))
+# Maximum number of retries for limit buy orders (more retries for 4H timeframe)
+MAX_LIMIT_ORDER_RETRIES = int(os.getenv("MAX_LIMIT_ORDER_RETRIES", "15"))
+# Delay between limit order retries in seconds (longer delay for 4H)
+LIMIT_ORDER_RETRY_DELAY = int(os.getenv("LIMIT_ORDER_RETRY_DELAY", "10"))
 
 # --- API Configuration ---
 API_KEY = os.getenv("BINANCE_API_KEY")
@@ -125,7 +135,7 @@ trading_strategy = EMACrossStrategy()
 # ======================================================================================
 
 
-def get_binance_data(client, symbol, interval='15m', limit=100):
+def get_binance_data(client, symbol, interval='4h', limit=100):
     """Fetches historical Kline data from Binance."""
     try:
         klines = client.klines(symbol=symbol, interval=interval, limit=limit)
@@ -149,24 +159,39 @@ def get_binance_data(client, symbol, interval='15m', limit=100):
         return None
 
 
-def analyze_data(df, swing_period=50):
-    """Calculates indicators and price action data."""
+def analyze_data(df, swing_period=25):
+    """Calculates indicators and price action data optimized for 4-hour timeframe."""
     if df is None or len(df) < swing_period:
         return None
 
-    df.ta.ema(length=9, append=True, col_names=('EMA_9',))
-    df.ta.ema(length=21, append=True, col_names=('EMA_21',))
-    df.ta.ema(length=50, append=True, col_names=('EMA_50',))
-    df.ta.rsi(length=14, append=True, col_names=('RSI_14',))
+    # Updated EMA periods for 4-hour timeframe
+    df.ta.ema(length=12, append=True, col_names=('EMA_12',))  # ~2 days
+    df.ta.ema(length=26, append=True, col_names=('EMA_26',))  # ~4.3 days  
+    df.ta.ema(length=55, append=True, col_names=('EMA_55',))  # ~9 days
+    
+    # RSI with longer period for 4-hour timeframe
+    df.ta.rsi(length=21, append=True, col_names=('RSI_21',))  # ~3.5 days
+    
+    # Add MACD for trend confirmation on longer timeframe
+    df.ta.macd(fast=12, slow=26, signal=9, append=True)
+    
+    # Add Bollinger Bands for volatility analysis
+    df.ta.bbands(length=20, std=2, append=True)
 
     latest = df.iloc[-1]
     recent_swing_df = df.tail(swing_period)
 
     analysis = {
-        '9_EMA': latest['EMA_9'],
-        '21_EMA': latest['EMA_21'],
-        '50_EMA': latest['EMA_50'],
-        'RSI_14': latest['RSI_14'],
+        '12_EMA': latest['EMA_12'],
+        '26_EMA': latest['EMA_26'], 
+        '55_EMA': latest['EMA_55'],
+        'RSI_21': latest['RSI_21'],
+        'MACD': latest['MACD_12_26_9'] if 'MACD_12_26_9' in latest.index else None,
+        'MACD_Signal': latest['MACDs_12_26_9'] if 'MACDs_12_26_9' in latest.index else None,
+        'MACD_Histogram': latest['MACDh_12_26_9'] if 'MACDh_12_26_9' in latest.index else None,
+        'BB_Upper': latest['BBU_20_2.0'] if 'BBU_20_2.0' in latest.index else None,
+        'BB_Middle': latest['BBM_20_2.0'] if 'BBM_20_2.0' in latest.index else None,
+        'BB_Lower': latest['BBL_20_2.0'] if 'BBL_20_2.0' in latest.index else None,
         'Last_Swing_High': recent_swing_df['High'].max(),
         'Last_Swing_Low': recent_swing_df['Low'].min()
     }
@@ -609,8 +634,8 @@ def place_limit_buy_with_retry(client, symbol, quantity, target_price, filters, 
             order_id = order['orderId']
             logging.info(f"[{symbol}] Limit buy order placed successfully. Order ID: {order_id}")
             
-            # Wait for the order to be filled
-            for check_attempt in range(60):  # Check for up to 5 minutes (60 * 5 seconds)
+            # Wait for the order to be filled (longer wait time for 4H timeframe)
+            for check_attempt in range(120):  # Check for up to 10 minutes (120 * 5 seconds)
                 try:
                     order_status = client.get_order(symbol=symbol, orderId=order_id)
                     
@@ -622,7 +647,7 @@ def place_limit_buy_with_retry(client, symbol, quantity, target_price, filters, 
                         break
                     else:
                         # Order still pending, wait a bit more
-                        if check_attempt % 12 == 0:  # Log every minute
+                        if check_attempt % 24 == 0:  # Log every 2 minutes for 4H timeframe
                             logging.info(f"[{symbol}] Order status: {order_status['status']}, waiting...")
                         time.sleep(5)
                         
@@ -887,11 +912,30 @@ def main():
 
                 if analysis and trading_strategy.check_buy_signal(symbol, analysis, current_price):
                     # A valid signal was found, prepare the trade plan
-                    # Place SL slightly below the swing low
-                    stop_loss = analysis['Last_Swing_Low'] * 0.998
+                    # For 4H timeframe, use more conservative stop loss placement
+                    # Use the lower of: swing low or 26-EMA with buffer
+                    swing_low_stop = analysis['Last_Swing_Low'] * 0.995  # 0.5% buffer below swing low
+                    ema_support_stop = analysis['26_EMA'] * 0.98  # 2% below 26-EMA
+                    
+                    # Use the higher of the two for less aggressive stop loss
+                    stop_loss = max(swing_low_stop, ema_support_stop)
+                    
+                    # Ensure stop loss isn't too close to current price (minimum 1% risk)
+                    min_stop_loss = current_price * 0.99
+                    stop_loss = min(stop_loss, min_stop_loss)
+                    
                     risk = current_price - stop_loss
                     take_profit = current_price + (risk * RISK_REWARD_RATIO)
                     quantity_to_buy = TRADE_AMOUNT_USDT / current_price
+                    
+                    # Log trade setup for 4H timeframe
+                    logging.info(f"[{symbol}] 4H Trade Setup:")
+                    logging.info(f"  Entry Price: ${current_price:.4f}")
+                    logging.info(f"  Stop Loss: ${stop_loss:.4f} ({((current_price - stop_loss) / current_price * 100):.2f}% risk)")
+                    logging.info(f"  Take Profit: ${take_profit:.4f} ({((take_profit - current_price) / current_price * 100):.2f}% reward)")
+                    logging.info(f"  Risk/Reward: 1:{RISK_REWARD_RATIO}")
+                    logging.info(f"  Swing Low: ${analysis['Last_Swing_Low']:.4f}")
+                    logging.info(f"  26-EMA Support: ${analysis['26_EMA']:.4f}")
 
                     # Validate trade amount meets minimum notional requirements
                     is_valid, validation_msg = validate_trade_amount(
@@ -928,8 +972,8 @@ def main():
                 logging.info("Scan cycle completed. No active trades.")
 
             logging.info(
-                f"Waiting 15 minutes before next scan...")
-            time.sleep(900)  # 15 minutes
+                f"Waiting 1 hour before next scan...")
+            time.sleep(3600)  # 1 hour (optimized for 4H timeframe)
         except KeyboardInterrupt:
             print("\nExiting bot.")
             break
