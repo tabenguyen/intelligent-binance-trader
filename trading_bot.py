@@ -59,13 +59,21 @@ load_dotenv()
 USE_TESTNET = os.getenv("USE_TESTNET", "True").lower() in ("true", "1", "yes")
 
 # --- Trade Configuration ---
-# Amount in USDT to spend on each trade.
+# LEGACY: Fixed amount in USDT to spend on each trade (used when dynamic sizing disabled)
 TRADE_AMOUNT_USDT = float(os.getenv("TRADE_AMOUNT_USDT", "25.0"))  # Increased for 4H timeframe
 # Desired Risk-to-Reward ratio for Take-Profit calculation. (4H timeframe typically allows for higher R:R)
 RISK_REWARD_RATIO = float(os.getenv("RISK_REWARD_RATIO", "2.0"))  # Increased from 1.5 to 2.0
 # --- NEW: Balance Safety Check ---
 # The bot will only place trades if your free USDT balance is above this amount.
 MIN_USDT_BALANCE = float(os.getenv("MIN_USDT_BALANCE", "150.0"))  # Increased for larger trades
+
+# --- SOPHISTICATED RISK MANAGEMENT ---
+# Dynamic Position Sizing Configuration
+ENABLE_DYNAMIC_POSITION_SIZING = os.getenv("ENABLE_DYNAMIC_POSITION_SIZING", "true").lower() == "true"
+RISK_PERCENTAGE_PER_TRADE = float(os.getenv("RISK_PERCENTAGE_PER_TRADE", "1.5"))  # 1.5% of capital per trade
+MINIMUM_RR_RATIO = float(os.getenv("MINIMUM_RR_RATIO", "1.5"))  # Minimum risk-reward ratio filter
+MAX_POSITION_SIZE_USDT = float(os.getenv("MAX_POSITION_SIZE_USDT", "100.0"))  # Maximum position size
+MIN_POSITION_SIZE_USDT = float(os.getenv("MIN_POSITION_SIZE_USDT", "10.0"))  # Minimum position size
 
 # --- Limit Order Configuration ---
 # Maximum number of retries for limit buy orders (more retries for 4H timeframe)
@@ -1034,6 +1042,130 @@ def format_value_safe(value, filters, filter_type, key, round_down=False):
     return str(value)
 
 
+def calculate_dynamic_position_size(client, symbol, entry_price, stop_loss_price):
+    """
+    Calculate position size using sophisticated risk management.
+    
+    Formula: Position Size = (Total Capital * Risk %) / (Entry Price - Stop Loss Price)
+    
+    Returns:
+        tuple: (position_size_usdt, quantity, risk_amount, is_dynamic)
+    """
+    try:
+        if not ENABLE_DYNAMIC_POSITION_SIZING:
+            # Use legacy fixed amount
+            return TRADE_AMOUNT_USDT, None, None, False
+        
+        # Get current account balance
+        account_info = client.get_account()
+        total_balance = 0
+        
+        # Calculate total account value in USDT
+        for balance in account_info['balances']:
+            asset = balance['asset']
+            free_amount = float(balance['free'])
+            locked_amount = float(balance['locked'])
+            total_amount = free_amount + locked_amount
+            
+            if total_amount > 0:
+                if asset == 'USDT':
+                    total_balance += total_amount
+                else:
+                    # Convert other assets to USDT value
+                    try:
+                        if asset != 'USDT':
+                            ticker_symbol = f"{asset}USDT"
+                            ticker = client.get_symbol_ticker(symbol=ticker_symbol)
+                            asset_price = float(ticker['price'])
+                            total_balance += total_amount * asset_price
+                    except:
+                        # Skip assets that can't be converted
+                        continue
+        
+        # Calculate risk amount based on percentage
+        risk_amount = total_balance * (RISK_PERCENTAGE_PER_TRADE / 100)
+        
+        # Calculate position size based on risk and stop distance
+        stop_distance = entry_price - stop_loss_price
+        if stop_distance <= 0:
+            logging.warning(f"[{symbol}] Invalid stop distance: {stop_distance}")
+            return TRADE_AMOUNT_USDT, None, None, False
+        
+        # Position size formula: Risk Amount / Stop Distance = Position Size
+        calculated_position_size = risk_amount / stop_distance
+        
+        # Apply position size limits
+        position_size_usdt = max(MIN_POSITION_SIZE_USDT, 
+                                min(MAX_POSITION_SIZE_USDT, calculated_position_size))
+        
+        # Calculate quantity based on position size
+        quantity = position_size_usdt / entry_price
+        
+        logging.info(f"[{symbol}] 💰 DYNAMIC POSITION SIZING CALCULATION:")
+        logging.info(f"  Total Account Value: ${total_balance:.2f}")
+        logging.info(f"  Risk Percentage: {RISK_PERCENTAGE_PER_TRADE:.1f}%")
+        logging.info(f"  Risk Amount: ${risk_amount:.2f}")
+        logging.info(f"  Stop Distance: ${stop_distance:.4f}")
+        logging.info(f"  Calculated Position: ${calculated_position_size:.2f}")
+        logging.info(f"  Final Position (after limits): ${position_size_usdt:.2f}")
+        logging.info(f"  Quantity: {quantity:.6f}")
+        
+        # Verify the actual risk
+        actual_risk = quantity * stop_distance
+        risk_percentage_actual = (actual_risk / total_balance) * 100
+        logging.info(f"  Actual Risk: ${actual_risk:.2f} ({risk_percentage_actual:.2f}% of capital)")
+        
+        return position_size_usdt, quantity, actual_risk, True
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error calculating dynamic position size: {e}")
+        logging.info(f"[{symbol}] Falling back to fixed position size: ${TRADE_AMOUNT_USDT}")
+        return TRADE_AMOUNT_USDT, None, None, False
+
+
+def validate_risk_reward_ratio(entry_price, stop_loss_price, take_profit_price, symbol):
+    """
+    Validate that the trade meets minimum risk-reward ratio requirements.
+    
+    Returns:
+        tuple: (is_valid, calculated_rr_ratio)
+    """
+    try:
+        # Calculate potential profit and risk
+        potential_profit = take_profit_price - entry_price
+        potential_risk = entry_price - stop_loss_price
+        
+        if potential_risk <= 0:
+            logging.warning(f"[{symbol}] Invalid risk calculation: {potential_risk}")
+            return False, 0
+        
+        # Calculate risk-reward ratio
+        rr_ratio = potential_profit / potential_risk
+        
+        # Check if it meets minimum requirements
+        is_valid = rr_ratio >= MINIMUM_RR_RATIO
+        
+        logging.info(f"[{symbol}] 📊 RISK-REWARD ANALYSIS:")
+        logging.info(f"  Entry Price: ${entry_price:.4f}")
+        logging.info(f"  Stop Loss: ${stop_loss_price:.4f}")
+        logging.info(f"  Take Profit: ${take_profit_price:.4f}")
+        logging.info(f"  Potential Risk: ${potential_risk:.4f}")
+        logging.info(f"  Potential Profit: ${potential_profit:.4f}")
+        logging.info(f"  Risk-Reward Ratio: {rr_ratio:.2f}:1")
+        logging.info(f"  Minimum Required: {MINIMUM_RR_RATIO:.2f}:1")
+        
+        if is_valid:
+            logging.info(f"[{symbol}] ✅ TRADE APPROVED - Meets R:R requirements")
+        else:
+            logging.warning(f"[{symbol}] ❌ TRADE REJECTED - Poor risk-reward ratio ({rr_ratio:.2f} < {MINIMUM_RR_RATIO:.2f})")
+        
+        return is_valid, rr_ratio
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error validating risk-reward ratio: {e}")
+        return False, 0
+
+
 def format_value(value, filters, filter_type, key):
     """Generic function to format price or quantity based on symbol filters."""
     size = None
@@ -1137,7 +1269,7 @@ def place_limit_buy_with_retry(client, symbol, quantity, target_price, filters, 
     return None
 
 
-def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_profit):
+def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_profit, trade_amount_usdt=None, risk_amount=None, rr_ratio=None, risk_method=None):
     """Places a market buy order and then an OCO sell order."""
     global active_trades
 
@@ -1268,7 +1400,7 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
             'order_list_id': order_list_id,
             'entry_price': entry_price,
             'quantity': executed_quantity if executed_quantity else float(formatted_quantity),
-            'trade_amount_usdt': TRADE_AMOUNT_USDT,
+            'trade_amount_usdt': trade_amount_usdt or TRADE_AMOUNT_USDT,
             'timestamp': time.time(),
             'stop_loss': stop_loss,
             'take_profit': take_profit,
@@ -1280,7 +1412,13 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
             'remaining_quantity': executed_quantity if executed_quantity else float(formatted_quantity),
             'tp1_executed': False,
             'tp1_profit': 0,
-            'breakeven_set': False
+            'breakeven_set': False,
+            
+            # Risk management metadata
+            'risk_amount': risk_amount,
+            'rr_ratio': rr_ratio,
+            'risk_management_method': risk_method or 'Legacy',
+            'position_sizing_used': 'Dynamic' if trade_amount_usdt != TRADE_AMOUNT_USDT else 'Fixed'
         }
 
         logging.info(
@@ -1400,23 +1538,53 @@ def main():
                     
                     risk = current_price - stop_loss
                     take_profit = current_price + (risk * RISK_REWARD_RATIO)
-                    quantity_to_buy = TRADE_AMOUNT_USDT / current_price
                     
-                    # Log trade setup for 4H timeframe
+                    # ═══════════════════════════════════════════════════════════════
+                    # SOPHISTICATED RISK MANAGEMENT
+                    # ═══════════════════════════════════════════════════════════════
+                    
+                    # 1. Validate Risk-Reward Ratio before proceeding
+                    is_rr_valid, calculated_rr = validate_risk_reward_ratio(
+                        current_price, stop_loss, take_profit, symbol)
+                    
+                    if not is_rr_valid:
+                        logging.warning(f"[{symbol}] Trade rejected due to poor R:R ratio")
+                        continue
+                    
+                    # 2. Calculate Dynamic Position Size
+                    position_size_usdt, calculated_quantity, actual_risk, is_dynamic = calculate_dynamic_position_size(
+                        client, symbol, current_price, stop_loss)
+                    
+                    # Use calculated quantity if dynamic sizing is enabled, otherwise use legacy calculation
+                    if is_dynamic and calculated_quantity:
+                        quantity_to_buy = calculated_quantity
+                        trade_amount_usdt = position_size_usdt
+                        risk_management_method = "Dynamic Position Sizing"
+                    else:
+                        quantity_to_buy = TRADE_AMOUNT_USDT / current_price
+                        trade_amount_usdt = TRADE_AMOUNT_USDT
+                        actual_risk = (current_price - stop_loss) * quantity_to_buy
+                        risk_management_method = "Fixed Position Size"
+                    
+                    # Log trade setup for 4H timeframe with enhanced risk management
                     logging.info(f"[{symbol}] 🎯 QUALITY-FILTERED 4H Trade Setup:")
                     logging.info(f"  ✅ Daily Trend: Bullish")
                     logging.info(f"  ✅ ATR: Normal volatility")
                     logging.info(f"  ✅ Volume: Strong confirmation")
+                    logging.info(f"  ✅ Risk-Reward: {calculated_rr:.2f}:1 (min: {MINIMUM_RR_RATIO:.2f}:1)")
+                    logging.info(f"  Risk Management: {risk_management_method}")
                     logging.info(f"  Entry Price: ${current_price:.4f}")
                     logging.info(f"  Stop Loss: ${stop_loss:.4f} ({((current_price - stop_loss) / current_price * 100):.2f}% risk)")
                     logging.info(f"  Take Profit: ${take_profit:.4f} ({((take_profit - current_price) / current_price * 100):.2f}% reward)")
-                    logging.info(f"  Risk/Reward: 1:{RISK_REWARD_RATIO}")
+                    logging.info(f"  Position Size: ${trade_amount_usdt:.2f}")
+                    logging.info(f"  Quantity: {quantity_to_buy:.6f}")
+                    logging.info(f"  Actual Risk: ${actual_risk:.2f}")
                     logging.info(f"  Swing Low: ${analysis['Last_Swing_Low']:.4f}")
                     logging.info(f"  26-EMA Support: ${analysis['26_EMA']:.4f}")
 
                     # Validate trade amount meets minimum notional requirements
                     is_valid, validation_msg = validate_trade_amount(
-                        client, symbol, TRADE_AMOUNT_USDT, current_price)
+                        client, symbol, trade_amount_usdt, current_price)
 
                     if not is_valid:
                         logging.warning(
@@ -1432,7 +1600,8 @@ def main():
                     logging.info(
                         f"USDT balance ({usdt_balance:.2f}) is above minimum ({MIN_USDT_BALANCE:.2f}). Executing trade.")
                     execute_oco_trade(
-                        client, symbol, quantity_to_buy, current_price, stop_loss, take_profit)
+                        client, symbol, quantity_to_buy, current_price, stop_loss, take_profit,
+                        trade_amount_usdt, actual_risk, calculated_rr, risk_management_method)
                     # Wait after a trade to prevent rapid-fire trades on the same signal
                     logging.info(
                         "Trade executed. Pausing for next scan cycle.")
