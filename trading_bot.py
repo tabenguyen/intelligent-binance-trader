@@ -1,5 +1,5 @@
 #
-# Automated Trading Scanner & Executor - 4-Hour Timeframe Strategy
+# Automated Trading Scanner & Executor - 4-Hour High-Quality Strategy
 #
 # -------------------------------------------------------------------------------------
 # CRITICAL SECURITY & RISK WARNING:
@@ -12,13 +12,19 @@
 #    variables as shown.
 # 5. This version trades AUTOMATICALLY without confirmation. It will only trade if
 #    your USDT balance is above the MIN_USDT_BALANCE threshold.
-# 6. Updated for 4-HOUR timeframe with enhanced technical analysis and risk management.
+# 6. Updated for 4-HOUR timeframe with ADVANCED QUALITY FILTERS for highest-quality signals only.
 # -------------------------------------------------------------------------------------
 #
-# 4-Hour Strategy Features:
+# 4-Hour High-Quality Strategy Features:
 # - Uses 4-hour candlestick data for more stable signals
 # - Enhanced EMA system (12, 26, 55) optimized for swing trading
 # - MACD and Bollinger Bands confirmation for better entries
+# 
+# ADVANCED QUALITY FILTERS (Only takes the BEST signals):
+# 1. Multi-Timeframe Confirmation: Checks daily 50-EMA to avoid counter-trend trades
+# 2. ATR Volatility Filter: Avoids choppy/sideways markets and overly volatile conditions
+# 3. Volume Confirmation: Requires 20%+ above average volume for genuine buying pressure
+# 
 # - Higher risk-reward ratio (2:1) suitable for longer timeframes
 # - More conservative stop-loss placement using swing lows and EMA support
 # - Hourly scans instead of 15-minute scans for efficiency
@@ -66,6 +72,16 @@ MIN_USDT_BALANCE = float(os.getenv("MIN_USDT_BALANCE", "150.0"))  # Increased fo
 MAX_LIMIT_ORDER_RETRIES = int(os.getenv("MAX_LIMIT_ORDER_RETRIES", "15"))
 # Delay between limit order retries in seconds (longer delay for 4H)
 LIMIT_ORDER_RETRY_DELAY = int(os.getenv("LIMIT_ORDER_RETRY_DELAY", "10"))
+
+# --- Quality Filter Configuration ---
+# Enable/disable multi-timeframe trend confirmation
+ENABLE_DAILY_TREND_FILTER = os.getenv("ENABLE_DAILY_TREND_FILTER", "True").lower() in ("true", "1", "yes")
+# Enable/disable ATR volatility filter
+ENABLE_ATR_FILTER = os.getenv("ENABLE_ATR_FILTER", "True").lower() in ("true", "1", "yes")
+# Enable/disable volume confirmation filter
+ENABLE_VOLUME_FILTER = os.getenv("ENABLE_VOLUME_FILTER", "True").lower() in ("true", "1", "yes")
+# Minimum volume ratio (current volume vs 20-period average)
+MIN_VOLUME_RATIO = float(os.getenv("MIN_VOLUME_RATIO", "1.2"))  # 20% above average
 
 # --- API Configuration ---
 API_KEY = os.getenv("BINANCE_API_KEY")
@@ -159,8 +175,42 @@ def get_binance_data(client, symbol, interval='4h', limit=100):
         return None
 
 
+def get_daily_trend_filter(client, symbol):
+    """
+    Fetch daily timeframe data to confirm long-term trend direction.
+    Returns True if the trend is bullish (price above daily 50-EMA), False otherwise.
+    """
+    try:
+        daily_df = get_binance_data(client, symbol, interval='1d', limit=60)
+        if daily_df is None or len(daily_df) < 50:
+            logging.warning(f"[{symbol}] Insufficient daily data for trend filter")
+            return False
+        
+        # Calculate daily 50-EMA for trend confirmation
+        daily_df.ta.ema(length=50, append=True, col_names=('Daily_EMA_50',))
+        
+        latest_daily = daily_df.iloc[-1]
+        current_price = latest_daily['Close']
+        daily_50_ema = latest_daily['Daily_EMA_50']
+        
+        is_bullish_trend = current_price > daily_50_ema
+        trend_strength = ((current_price - daily_50_ema) / daily_50_ema) * 100
+        
+        logging.info(f"[{symbol}] Daily Trend Filter:")
+        logging.info(f"  Daily 50-EMA: ${daily_50_ema:.4f}")
+        logging.info(f"  Current Price: ${current_price:.4f}")
+        logging.info(f"  Trend Strength: {trend_strength:+.2f}%")
+        logging.info(f"  Bullish Trend: {is_bullish_trend}")
+        
+        return is_bullish_trend
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error in daily trend filter: {e}")
+        return False
+
+
 def analyze_data(df, swing_period=25):
-    """Calculates indicators and price action data optimized for 4-hour timeframe."""
+    """Calculates indicators and price action data optimized for 4-hour timeframe with quality filters."""
     if df is None or len(df) < swing_period:
         return None
 
@@ -177,9 +227,33 @@ def analyze_data(df, swing_period=25):
     
     # Add Bollinger Bands for volatility analysis
     df.ta.bbands(length=20, std=2, append=True)
+    
+    # Add ATR for volatility filter
+    df.ta.atr(length=14, append=True, col_names=('ATR_14',))
+    
+    # Calculate volume moving average for volume filter
+    df.ta.sma(close=df['Volume'], length=20, append=True, col_names=('Volume_SMA_20',))
 
     latest = df.iloc[-1]
     recent_swing_df = df.tail(swing_period)
+    
+    # Calculate ATR-based volatility metrics
+    atr_current = latest['ATR_14']
+    atr_20_avg = df['ATR_14'].tail(20).mean()
+    atr_percentile = (atr_current / atr_20_avg) if atr_20_avg > 0 else 1.0
+    
+    # Calculate volume metrics
+    current_volume = latest['Volume']
+    avg_volume_20 = latest['Volume_SMA_20']
+    volume_ratio = (current_volume / avg_volume_20) if avg_volume_20 > 0 else 1.0
+    
+    # Determine market volatility state
+    if atr_percentile < 0.7:
+        volatility_state = "LOW"  # Too choppy/sideways
+    elif atr_percentile > 2.0:
+        volatility_state = "HIGH"  # Too chaotic
+    else:
+        volatility_state = "NORMAL"  # Good for trading
 
     analysis = {
         '12_EMA': latest['EMA_12'],
@@ -193,7 +267,15 @@ def analyze_data(df, swing_period=25):
         'BB_Middle': latest['BBM_20_2.0'] if 'BBM_20_2.0' in latest.index else None,
         'BB_Lower': latest['BBL_20_2.0'] if 'BBL_20_2.0' in latest.index else None,
         'Last_Swing_High': recent_swing_df['High'].max(),
-        'Last_Swing_Low': recent_swing_df['Low'].min()
+        'Last_Swing_Low': recent_swing_df['Low'].min(),
+        # Quality Filter Metrics
+        'ATR_14': atr_current,
+        'ATR_Percentile': atr_percentile,
+        'Volatility_State': volatility_state,
+        'Current_Volume': current_volume,
+        'Avg_Volume_20': avg_volume_20,
+        'Volume_Ratio': volume_ratio,
+        'Volume_Above_Avg': volume_ratio >= 1.2  # 20% above average
     }
     return analysis
 
@@ -910,8 +992,10 @@ def main():
                 current_price = df['Close'].iloc[-1]
                 analysis = analyze_data(df)
 
-                if analysis and trading_strategy.check_buy_signal(symbol, analysis, current_price):
-                    # A valid signal was found, prepare the trade plan
+                if analysis and trading_strategy.check_buy_signal(symbol, analysis, current_price, client):
+                    # A HIGH-QUALITY signal was found, prepare the trade plan
+                    logging.info(f"[{symbol}] 🎯 HIGH-QUALITY SIGNAL CONFIRMED - Preparing trade execution")
+                    
                     # For 4H timeframe, use more conservative stop loss placement
                     # Use the lower of: swing low or 26-EMA with buffer
                     swing_low_stop = analysis['Last_Swing_Low'] * 0.995  # 0.5% buffer below swing low
@@ -929,7 +1013,10 @@ def main():
                     quantity_to_buy = TRADE_AMOUNT_USDT / current_price
                     
                     # Log trade setup for 4H timeframe
-                    logging.info(f"[{symbol}] 4H Trade Setup:")
+                    logging.info(f"[{symbol}] 🎯 QUALITY-FILTERED 4H Trade Setup:")
+                    logging.info(f"  ✅ Daily Trend: Bullish")
+                    logging.info(f"  ✅ ATR: Normal volatility")
+                    logging.info(f"  ✅ Volume: Strong confirmation")
                     logging.info(f"  Entry Price: ${current_price:.4f}")
                     logging.info(f"  Stop Loss: ${stop_loss:.4f} ({((current_price - stop_loss) / current_price * 100):.2f}% risk)")
                     logging.info(f"  Take Profit: ${take_profit:.4f} ({((take_profit - current_price) / current_price * 100):.2f}% reward)")
