@@ -51,6 +51,12 @@ RISK_REWARD_RATIO = float(os.getenv("RISK_REWARD_RATIO", "1.5"))
 # The bot will only place trades if your free USDT balance is above this amount.
 MIN_USDT_BALANCE = float(os.getenv("MIN_USDT_BALANCE", "100.0"))
 
+# --- Limit Order Configuration ---
+# Maximum number of retries for limit buy orders
+MAX_LIMIT_ORDER_RETRIES = int(os.getenv("MAX_LIMIT_ORDER_RETRIES", "10"))
+# Delay between limit order retries in seconds
+LIMIT_ORDER_RETRY_DELAY = int(os.getenv("LIMIT_ORDER_RETRY_DELAY", "5"))
+
 # --- API Configuration ---
 API_KEY = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_API_SECRET")
@@ -395,6 +401,96 @@ def format_value(value, filters, filter_type, key):
     return str(value)
 
 
+def place_limit_buy_with_retry(client, symbol, quantity, target_price, filters, max_retries=10, retry_delay=5):
+    """
+    Places a limit buy order and retries until filled or max retries reached.
+    
+    Args:
+        client: Binance client
+        symbol: Trading symbol
+        quantity: Quantity to buy
+        target_price: Target price for the limit order
+        filters: Symbol filters from exchange info
+        max_retries: Maximum number of retry attempts
+        retry_delay: Delay between retries in seconds
+    
+    Returns:
+        Order response if successful, None if failed
+    """
+    
+    for attempt in range(max_retries):
+        try:
+            # Get current market price to adjust our limit price if needed
+            ticker = client.ticker_24hr(symbol=symbol)
+            current_market_price = float(ticker['lastPrice'])
+            
+            # Use the higher of target price or current market price to ensure order gets filled
+            # Add a small buffer (0.1%) above market price to increase fill probability
+            adjusted_price = max(target_price, current_market_price * 1.001)
+            formatted_price = format_value(adjusted_price, filters, 'PRICE_FILTER', 'tickSize')
+            
+            logging.info(f"[{symbol}] Attempt {attempt + 1}/{max_retries}:")
+            logging.info(f"  - Target price: ${target_price:.4f}")
+            logging.info(f"  - Market price: ${current_market_price:.4f}")
+            logging.info(f"  - Order price: ${formatted_price}")
+            
+            # Place limit buy order
+            order = client.new_order(
+                symbol=symbol,
+                side='BUY',
+                type='LIMIT',
+                timeInForce='GTC',  # Good Till Cancelled
+                quantity=quantity,
+                price=formatted_price
+            )
+            
+            order_id = order['orderId']
+            logging.info(f"[{symbol}] Limit buy order placed successfully. Order ID: {order_id}")
+            
+            # Wait for the order to be filled
+            for check_attempt in range(60):  # Check for up to 5 minutes (60 * 5 seconds)
+                try:
+                    order_status = client.get_order(symbol=symbol, orderId=order_id)
+                    
+                    if order_status['status'] == 'FILLED':
+                        logging.info(f"[{symbol}] Limit buy order filled successfully!")
+                        return order_status
+                    elif order_status['status'] in ['CANCELED', 'REJECTED', 'EXPIRED']:
+                        logging.warning(f"[{symbol}] Order {order_status['status'].lower()}. Will retry with new order.")
+                        break
+                    else:
+                        # Order still pending, wait a bit more
+                        if check_attempt % 12 == 0:  # Log every minute
+                            logging.info(f"[{symbol}] Order status: {order_status['status']}, waiting...")
+                        time.sleep(5)
+                        
+                except ClientError as e:
+                    logging.error(f"[{symbol}] Error checking order status: {e}")
+                    break
+            
+            # If we get here, the order wasn't filled in time, cancel it and try again
+            try:
+                client.cancel_order(symbol=symbol, orderId=order_id)
+                logging.info(f"[{symbol}] Cancelled unfilled order {order_id}")
+            except ClientError as e:
+                logging.warning(f"[{symbol}] Could not cancel order {order_id}: {e}")
+            
+            if attempt < max_retries - 1:
+                logging.info(f"[{symbol}] Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                
+        except ClientError as e:
+            logging.error(f"[{symbol}] Error placing limit order (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                logging.error(f"[{symbol}] Failed to place limit order after {max_retries} attempts")
+                return None
+    
+    logging.error(f"[{symbol}] Failed to execute limit buy order after {max_retries} attempts")
+    return None
+
+
 def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_profit):
     """Places a market buy order and then an OCO sell order."""
     global active_trades
@@ -446,11 +542,19 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
         logging.info(f"  - Min Notional Required: ${min_notional:.2f}")
 
         logging.info(
-            f"[{symbol}] Placing MARKET BUY order for {formatted_quantity} units.")
-        buy_order = client.new_order(
-            symbol=symbol, side='BUY', type='MARKET', quantity=formatted_quantity)
+            f"[{symbol}] Placing LIMIT BUY order for {formatted_quantity} units at ${entry_price:.4f}")
+        
+        # Place limit buy order at the exact entry price
+        buy_order = place_limit_buy_with_retry(
+            client, symbol, formatted_quantity, entry_price, filters, 
+            MAX_LIMIT_ORDER_RETRIES, LIMIT_ORDER_RETRY_DELAY)
+        
+        if not buy_order:
+            logging.error(f"[{symbol}] Failed to execute limit buy order after retries")
+            return
+
         logging.info(
-            f"[{symbol}] MARKET BUY successful. Order ID: {buy_order['orderId']}")
+            f"[{symbol}] LIMIT BUY successful. Order ID: {buy_order['orderId']}")
 
         # Get the actual executed quantity from the buy order
         executed_quantity = get_executed_quantity_from_order(buy_order)
@@ -633,7 +737,6 @@ def main():
                     # Wait after a trade to prevent rapid-fire trades on the same signal
                     logging.info(
                         "Trade executed. Pausing for next scan cycle.")
-                    break  # Exit the for loop to start the 15min wait
 
                 # Small delay to avoid hitting API rate limits too quickly
                 time.sleep(5)
