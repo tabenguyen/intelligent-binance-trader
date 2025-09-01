@@ -66,7 +66,8 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Active Trades Tracking ---
-# Dictionary to track active OCO orders by symbol
+# Dictionary to track active OCO orders by symbol with detailed trade information
+# Structure: {symbol: {order_list_id, entry_price, quantity, trade_amount_usdt, timestamp}}
 active_trades = {}
 ACTIVE_TRADES_FILE = 'active_trades.txt'
 
@@ -266,12 +267,166 @@ def wait_for_balance_update(client, symbol, expected_quantity, max_attempts=10, 
     return False, current_balance
 
 
+def calculate_and_log_pnl(client, symbol, oco_status, entry_price, entry_quantity, trade_amount_usdt):
+    """Calculate and log profit/loss for a completed trade."""
+    try:
+        # Find which order in the OCO was executed
+        executed_order = None
+        for order in oco_status['orders']:
+            if order['status'] == 'FILLED':
+                executed_order = order
+                break
+        
+        if not executed_order:
+            logging.warning(f"[{symbol}] No filled order found in OCO status")
+            return
+        
+        # Get execution details
+        exit_price = float(executed_order['price'])
+        exit_quantity = float(executed_order['executedQty'])
+        
+        # Calculate P&L
+        entry_value = entry_quantity * entry_price
+        exit_value = exit_quantity * exit_price
+        
+        # Calculate gross P&L
+        gross_pnl = exit_value - entry_value
+        
+        # Estimate trading fees (Binance default is 0.1% per trade)
+        # This is an approximation - actual fees may vary based on your fee tier
+        entry_fee = entry_value * 0.001  # 0.1% on buy
+        exit_fee = exit_value * 0.001    # 0.1% on sell
+        total_fees = entry_fee + exit_fee
+        
+        # Calculate net P&L
+        net_pnl = gross_pnl - total_fees
+        
+        # Calculate percentage return
+        pnl_percentage = (net_pnl / trade_amount_usdt) * 100 if trade_amount_usdt else (net_pnl / entry_value) * 100
+        
+        # Determine if it was take profit or stop loss
+        order_type = "TAKE_PROFIT" if net_pnl > 0 else "STOP_LOSS"
+        
+        # Log detailed P&L information
+        logging.info(f"[{symbol}] ═══════════════════════════════════════")
+        logging.info(f"[{symbol}] TRADE COMPLETED - {order_type}")
+        logging.info(f"[{symbol}] ═══════════════════════════════════════")
+        logging.info(f"[{symbol}] Entry Price: ${entry_price:.4f}")
+        logging.info(f"[{symbol}] Exit Price:  ${exit_price:.4f}")
+        logging.info(f"[{symbol}] Quantity:    {entry_quantity:.6f}")
+        logging.info(f"[{symbol}] Entry Value: ${entry_value:.2f}")
+        logging.info(f"[{symbol}] Exit Value:  ${exit_value:.2f}")
+        logging.info(f"[{symbol}] Gross P&L:   ${gross_pnl:+.2f}")
+        logging.info(f"[{symbol}] Total Fees:  ${total_fees:.2f}")
+        logging.info(f"[{symbol}] Net P&L:     ${net_pnl:+.2f}")
+        logging.info(f"[{symbol}] Return:      {pnl_percentage:+.2f}%")
+        logging.info(f"[{symbol}] ═══════════════════════════════════════")
+        
+        # Also log to a separate P&L file for record keeping
+        log_pnl_to_file(symbol, entry_price, exit_price, entry_quantity, 
+                        entry_value, exit_value, gross_pnl, total_fees, net_pnl, 
+                        pnl_percentage, order_type)
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error calculating P&L: {e}")
+
+
+def display_active_trades_pnl(client):
+    """Display current unrealized P&L for active trades."""
+    if not active_trades:
+        return
+    
+    logging.info("═══════════════════════════════════════")
+    logging.info("ACTIVE TRADES - UNREALIZED P&L")
+    logging.info("═══════════════════════════════════════")
+    
+    for symbol, trade_info in active_trades.items():
+        try:
+            if not isinstance(trade_info, dict):
+                continue  # Skip old format entries
+            
+            entry_price = trade_info.get('entry_price')
+            quantity = trade_info.get('quantity')
+            
+            if not entry_price or not quantity:
+                continue
+            
+            # Get current price
+            ticker = client.ticker_24hr(symbol=symbol)
+            current_price = float(ticker['lastPrice'])
+            
+            # Calculate unrealized P&L
+            entry_value = quantity * entry_price
+            current_value = quantity * current_price
+            unrealized_pnl = current_value - entry_value
+            pnl_percentage = (unrealized_pnl / entry_value) * 100
+            
+            # Estimate fees
+            estimated_fees = entry_value * 0.002  # 0.2% total (buy + sell)
+            net_unrealized_pnl = unrealized_pnl - estimated_fees
+            
+            logging.info(f"[{symbol}] Entry: ${entry_price:.4f} | Current: ${current_price:.4f} | "
+                        f"Unrealized P&L: ${net_unrealized_pnl:+.2f} ({pnl_percentage:+.2f}%)")
+                        
+        except Exception as e:
+            logging.error(f"[{symbol}] Error calculating unrealized P&L: {e}")
+    
+    logging.info("═══════════════════════════════════════")
+
+
+def log_pnl_to_file(symbol, entry_price, exit_price, quantity, entry_value, 
+                    exit_value, gross_pnl, fees, net_pnl, pnl_percentage, order_type):
+    """Log P&L details to a CSV file for record keeping."""
+    try:
+        import csv
+        from datetime import datetime
+        
+        pnl_file = 'trading_pnl_log.csv'
+        file_exists = os.path.exists(pnl_file)
+        
+        with open(pnl_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            
+            # Write header if file doesn't exist
+            if not file_exists:
+                writer.writerow([
+                    'Timestamp', 'Symbol', 'Order_Type', 'Entry_Price', 'Exit_Price',
+                    'Quantity', 'Entry_Value', 'Exit_Value', 'Gross_PnL', 'Fees',
+                    'Net_PnL', 'Return_Percentage'
+                ])
+            
+            # Write trade data
+            writer.writerow([
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                symbol, order_type, f"{entry_price:.4f}", f"{exit_price:.4f}",
+                f"{quantity:.6f}", f"{entry_value:.2f}", f"{exit_value:.2f}",
+                f"{gross_pnl:.2f}", f"{fees:.2f}", f"{net_pnl:.2f}", f"{pnl_percentage:.2f}"
+            ])
+        
+        logging.info(f"[{symbol}] P&L data logged to {pnl_file}")
+        
+    except Exception as e:
+        logging.error(f"[{symbol}] Error logging P&L to file: {e}")
+
+
 def check_active_trades_status(client):
     """Check status of active OCO orders and remove completed ones."""
     global active_trades
     completed_trades = []
 
-    for symbol, order_list_id in active_trades.items():
+    for symbol, trade_info in active_trades.items():
+        # Handle backward compatibility for old format (just order_list_id)
+        if isinstance(trade_info, (int, str)):
+            order_list_id = trade_info
+            entry_price = None
+            quantity = None
+            trade_amount = None
+        else:
+            order_list_id = trade_info['order_list_id']
+            entry_price = trade_info.get('entry_price')
+            quantity = trade_info.get('quantity')
+            trade_amount = trade_info.get('trade_amount_usdt')
+
         try:
             # Check OCO order status
             oco_status = client.get_oco_order(orderListId=order_list_id)
@@ -281,6 +436,13 @@ def check_active_trades_status(client):
                 # OCO order is completed (either profit taken or stop loss hit)
                 logging.info(
                     f"[{symbol}] OCO order completed with status: {order_list_status}")
+                
+                # Calculate and log profit/loss
+                if entry_price and quantity:
+                    calculate_and_log_pnl(client, symbol, oco_status, entry_price, quantity, trade_amount)
+                else:
+                    logging.warning(f"[{symbol}] Cannot calculate P&L - missing trade entry data")
+                
                 completed_trades.append(symbol)
             elif order_list_status == 'EXECUTING':
                 # Still active, keep monitoring
@@ -614,9 +776,19 @@ def execute_oco_trade(client, symbol, quantity, entry_price, stop_loss, take_pro
             stopLimitTimeInForce='GTC'
         )
 
-        # Track the active OCO order
+        # Track the active OCO order with detailed trade information
         order_list_id = oco_order['orderListId']
-        active_trades[symbol] = order_list_id
+        
+        # Store comprehensive trade data for P&L calculation
+        active_trades[symbol] = {
+            'order_list_id': order_list_id,
+            'entry_price': entry_price,
+            'quantity': executed_quantity if executed_quantity else float(formatted_quantity),
+            'trade_amount_usdt': TRADE_AMOUNT_USDT,
+            'timestamp': time.time(),
+            'stop_loss': stop_loss,
+            'take_profit': take_profit
+        }
 
         logging.info(
             f"[{symbol}] OCO SELL order placed successfully. Order List ID: {order_list_id}")
@@ -676,14 +848,20 @@ def main():
                 logging.info(
                     f"Checking status of {len(active_trades)} active trades...")
                 check_active_trades_status(client)
+                
+                # Display unrealized P&L for remaining active trades
+                if active_trades:
+                    display_active_trades_pnl(client)
 
             for symbol in watchlist:
                 logging.info(f"--- Analyzing {symbol} ---")
 
                 # Skip symbols that already have active OCO orders
                 if is_symbol_actively_trading(symbol):
+                    trade_info = active_trades[symbol]
+                    order_id = trade_info['order_list_id'] if isinstance(trade_info, dict) else trade_info
                     logging.info(
-                        f"[{symbol}] Skipping - already has active OCO order (ID: {active_trades[symbol]})")
+                        f"[{symbol}] Skipping - already has active OCO order (ID: {order_id})")
                     continue
 
                 # --- BALANCE CHECK FIRST ---
