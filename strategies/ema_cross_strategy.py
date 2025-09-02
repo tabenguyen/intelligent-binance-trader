@@ -160,21 +160,21 @@ class EMACrossStrategy(BaseStrategy):
         # All quality filters must pass first
         quality_filters_passed = daily_trend_bullish and atr_suitable and volume_confirmed
         
-        # All core strategy conditions must be met
-        core_conditions = (price_above_55ema and emas_in_uptrend and 
-                          rsi_is_healthy and price_near_support)
+        # Core strategy conditions - now requires only 1 out of 4 rules to pass
+        core_conditions_list = [price_above_55ema, emas_in_uptrend, rsi_is_healthy, price_near_support]
+        core_conditions_passed = sum(core_conditions_list) >= 1
         
         # Additional confirmations (MACD and BB) improve signal quality
         confirmation_signals = macd_bullish and bb_favorable
         
-        if quality_filters_passed and core_conditions and confirmation_signals:
+        if quality_filters_passed and core_conditions_passed and confirmation_signals:
             logging.info(f"[{symbol}] 🎯 HIGH-QUALITY BUY SIGNAL DETECTED!")
             logging.info(f"[{symbol}] ✅ All quality filters passed")
-            logging.info(f"[{symbol}] ✅ All core conditions met") 
+            logging.info(f"[{symbol}] ✅ Core conditions passed ({sum(core_conditions_list)}/4 rules)") 
             logging.info(f"[{symbol}] ✅ All confirmation signals positive")
             return True
-        elif quality_filters_passed and core_conditions:
-            logging.info(f"[{symbol}] ⚠️  PARTIAL SIGNAL: Core conditions met but lacking confirmations")
+        elif quality_filters_passed and core_conditions_passed:
+            logging.info(f"[{symbol}] ⚠️  PARTIAL SIGNAL: Core conditions met ({sum(core_conditions_list)}/4 rules) but lacking confirmations")
             logging.info(f"[{symbol}] MACD bullish: {macd_bullish}, BB favorable: {bb_favorable}")
         elif not quality_filters_passed:
             logging.info(f"[{symbol}] ❌ SIGNAL REJECTED: Quality filters failed")
@@ -188,7 +188,8 @@ class EMACrossStrategy(BaseStrategy):
         else:
             logging.info(f"[{symbol}] ❌ SIGNAL REJECTED: Core conditions not met")
             # Log detailed results of each core condition
-            logging.info(f"  📊 CORE CONDITIONS ANALYSIS:")
+            core_passed_count = sum(core_conditions_list)
+            logging.info(f"  📊 CORE CONDITIONS ANALYSIS ({core_passed_count}/4 passed, need 1+):")
             logging.info(f"  • Price above 55-EMA: {'✅' if price_above_55ema else '❌'} (Price: ${current_price:.2f} vs 55-EMA: ${analysis['55_EMA']:.2f})")
             logging.info(f"  • EMA uptrend (12>26): {'✅' if emas_in_uptrend else '❌'} (12-EMA: ${analysis['12_EMA']:.2f} vs 26-EMA: ${analysis['26_EMA']:.2f})")
             logging.info(f"  • RSI healthy range: {'✅' if rsi_is_healthy else '❌'} (RSI: {analysis['RSI_21']:.1f}, need {self.rsi_lower_bound}-{self.rsi_upper_bound})")
@@ -228,12 +229,14 @@ class EMACrossStrategy(BaseStrategy):
         2. ATR Volatility Filter: Normal market volatility (0.7x - 2.0x)
         3. Volume Filter: Volume 20%+ above 20-period average
         
-        CORE STRATEGY:
+        CORE STRATEGY (Need 1 of 4 Rules):
         4. Long-term Trend: Price above 55-EMA
         5. Bullish Momentum: 12-EMA above 26-EMA
-        6. MACD Confirmation: MACD above signal with positive histogram
-        7. Healthy RSI: Between {self.rsi_lower_bound} and {self.rsi_upper_bound}
-        8. Good Entry: Within {self.ema_support_tolerance*100}% of 26-EMA
+        6. Healthy RSI: Between {self.rsi_lower_bound} and {self.rsi_upper_bound}
+        7. Good Entry: Within {self.ema_support_tolerance*100}% of 26-EMA
+        
+        CONFIRMATION SIGNALS (Improve Quality):
+        8. MACD Confirmation: MACD above signal with positive histogram
         9. Bollinger Bands: Price in lower 60% of BB range
         """
 

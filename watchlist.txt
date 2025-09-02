@@ -18,3 +18,5 @@ SHIBUSDT
 WIFUSDT
 PEPEUSDT
 ORDIUSDT
+
+uv run python simulate_trading.py --symbols DOTUSDT --days 14 --interval 4h --balance 77 --trade-amount 25
