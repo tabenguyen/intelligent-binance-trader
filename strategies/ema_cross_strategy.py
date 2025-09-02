@@ -178,8 +178,38 @@ class EMACrossStrategy(BaseStrategy):
             logging.info(f"[{symbol}] MACD bullish: {macd_bullish}, BB favorable: {bb_favorable}")
         elif not quality_filters_passed:
             logging.info(f"[{symbol}] ❌ SIGNAL REJECTED: Quality filters failed")
+            # Log which quality filters failed
+            if not daily_trend_bullish:
+                logging.info(f"  • Daily trend filter: FAILED (price below daily 50-EMA)")
+            if not atr_suitable:
+                logging.info(f"  • ATR filter: FAILED (volatility: {analysis.get('Volatility_State', 'UNKNOWN')})")
+            if not volume_confirmed:
+                logging.info(f"  • Volume filter: FAILED (ratio: {analysis.get('Volume_Ratio', 0):.2f}x, need {MIN_VOLUME_RATIO}x)")
         else:
             logging.info(f"[{symbol}] ❌ SIGNAL REJECTED: Core conditions not met")
+            # Log detailed results of each core condition
+            logging.info(f"  📊 CORE CONDITIONS ANALYSIS:")
+            logging.info(f"  • Price above 55-EMA: {'✅' if price_above_55ema else '❌'} (Price: ${current_price:.2f} vs 55-EMA: ${analysis['55_EMA']:.2f})")
+            logging.info(f"  • EMA uptrend (12>26): {'✅' if emas_in_uptrend else '❌'} (12-EMA: ${analysis['12_EMA']:.2f} vs 26-EMA: ${analysis['26_EMA']:.2f})")
+            logging.info(f"  • RSI healthy range: {'✅' if rsi_is_healthy else '❌'} (RSI: {analysis['RSI_21']:.1f}, need {self.rsi_lower_bound}-{self.rsi_upper_bound})")
+            
+            # Calculate distance from 26-EMA for price near support check
+            ema_distance_pct = abs(current_price - analysis['26_EMA']) / analysis['26_EMA'] * 100
+            logging.info(f"  • Price near 26-EMA support: {'✅' if price_near_support else '❌'} ({ema_distance_pct:.1f}% from 26-EMA, need <{self.ema_support_tolerance*100}%)")
+            
+            # Also show confirmation signals status
+            logging.info(f"  📋 CONFIRMATION SIGNALS:")
+            if analysis.get('MACD') and analysis.get('MACD_Signal'):
+                logging.info(f"  • MACD bullish: {'✅' if macd_bullish else '❌'} (MACD: {analysis['MACD']:.4f} vs Signal: {analysis['MACD_Signal']:.4f})")
+            else:
+                logging.info(f"  • MACD bullish: ✅ (not available, defaulted to True)")
+                
+            if analysis.get('BB_Upper') and analysis.get('BB_Lower'):
+                bb_range = analysis['BB_Upper'] - analysis['BB_Lower']
+                price_position_in_bb = (current_price - analysis['BB_Lower']) / bb_range * 100
+                logging.info(f"  • BB favorable entry: {'✅' if bb_favorable else '❌'} (Price at {price_position_in_bb:.1f}% of BB range, need <60%)")
+            else:
+                logging.info(f"  • BB favorable entry: ✅ (not available, defaulted to True)")
 
         return False
 
