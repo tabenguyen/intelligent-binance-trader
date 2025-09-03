@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from ..core.interfaces import IRiskManager
-from ..models import TradingSignal, RiskConfig
+from ..models import TradingSignal, RiskConfig, TradingConfig
 
 
 class RiskManagementService(IRiskManager):
@@ -15,9 +15,10 @@ class RiskManagementService(IRiskManager):
     Implements various position sizing and risk control methods.
     """
     
-    def __init__(self, risk_config: RiskConfig):
-        """Initialize with risk configuration."""
-        self.config = risk_config
+    def __init__(self, trading_config: TradingConfig):
+        """Initialize with trading configuration."""
+        self.config = trading_config.risk_config
+        self.trading_config = trading_config
         self.logger = logging.getLogger(__name__)
     
     def validate_trade(self, signal: TradingSignal, current_balance: float) -> bool:
@@ -32,40 +33,95 @@ class RiskManagementService(IRiskManager):
             True if trade is acceptable, False otherwise
         """
         try:
-            # Check minimum balance
-            if current_balance < 100.0:  # Minimum required balance
-                self.logger.warning(f"Insufficient balance: {current_balance}")
-                return False
+            self.logger.info(f"🔍 RISK MANAGEMENT VALIDATION for {signal.symbol}")
+            self.logger.info(f"   Signal Price: ${signal.price:.4f}")
+            self.logger.info(f"   Current Balance: ${current_balance:.2f}")
+            self.logger.info(f"   Stop Loss: ${signal.stop_loss:.4f}" if signal.stop_loss else "   Stop Loss: Not set")
+            self.logger.info(f"   Take Profit: ${signal.take_profit:.4f}" if signal.take_profit else "   Take Profit: Not set")
             
-            # Calculate position size
+            # Check 1: Minimum balance requirement
+            self.logger.info(f"📊 CHECK 1: Minimum Balance")
+            self.logger.info(f"   Required: ${self.trading_config.min_balance:.2f}")
+            self.logger.info(f"   Current: ${current_balance:.2f}")
+            if current_balance < self.trading_config.min_balance:
+                self.logger.warning(f"❌ FAILED - Insufficient balance: ${current_balance:.2f} < ${self.trading_config.min_balance:.2f}")
+                return False
+            self.logger.info(f"✅ PASSED - Balance sufficient")
+            
+            # Calculate position size for further checks
             position_size = self.calculate_position_size(signal, current_balance)
+            self.logger.info(f"💰 Calculated Position Size: {position_size:.6f} {signal.symbol}")
             
-            # Check if position size exceeds maximum
+            # Check 2: Maximum position size limit
+            self.logger.info(f"📊 CHECK 2: Maximum Position Size")
+            self.logger.info(f"   Maximum Allowed: {self.config.max_position_size:.2f}")
+            self.logger.info(f"   Calculated Size: {position_size:.6f}")
             if position_size > self.config.max_position_size:
-                self.logger.warning(f"Position size {position_size} exceeds maximum {self.config.max_position_size}")
+                self.logger.warning(f"❌ FAILED - Position size {position_size:.6f} exceeds maximum {self.config.max_position_size:.2f}")
                 return False
+            self.logger.info(f"✅ PASSED - Position size within limits")
             
-            # Check if trade amount is within limits
+            # Check 3: Trade value vs risk per trade percentage
             trade_value = position_size * signal.price
             max_trade_value = current_balance * (self.config.risk_per_trade_percentage / 100)
-            
+            self.logger.info(f"📊 CHECK 3: Risk Per Trade Limit")
+            self.logger.info(f"   Risk Percentage: {self.config.risk_per_trade_percentage}%")
+            self.logger.info(f"   Maximum Trade Value: ${max_trade_value:.2f}")
+            self.logger.info(f"   Calculated Trade Value: ${trade_value:.2f}")
             if trade_value > max_trade_value:
-                self.logger.warning(f"Trade value {trade_value} exceeds maximum {max_trade_value}")
+                self.logger.warning(f"❌ FAILED - Trade value ${trade_value:.2f} exceeds maximum ${max_trade_value:.2f}")
                 return False
+            self.logger.info(f"✅ PASSED - Trade value within risk limits")
             
-            # Validate stop loss and take profit
-            if signal.stop_loss and signal.stop_loss >= signal.price:
-                self.logger.warning(f"Invalid stop loss: {signal.stop_loss} >= {signal.price}")
-                return False
+            # Check 4: Stop loss validation
+            self.logger.info(f"📊 CHECK 4: Stop Loss Validation")
+            if signal.stop_loss:
+                self.logger.info(f"   Entry Price: ${signal.price:.4f}")
+                self.logger.info(f"   Stop Loss: ${signal.stop_loss:.4f}")
+                if signal.stop_loss >= signal.price:
+                    self.logger.warning(f"❌ FAILED - Invalid stop loss: ${signal.stop_loss:.4f} >= ${signal.price:.4f}")
+                    return False
+                stop_loss_distance = signal.price - signal.stop_loss
+                stop_loss_percentage = (stop_loss_distance / signal.price) * 100
+                self.logger.info(f"   Stop Loss Distance: ${stop_loss_distance:.4f} ({stop_loss_percentage:.2f}%)")
+                self.logger.info(f"✅ PASSED - Stop loss is valid")
+            else:
+                self.logger.info(f"⚠️  No stop loss set - will use default calculation")
             
-            if signal.take_profit and signal.take_profit <= signal.price:
-                self.logger.warning(f"Invalid take profit: {signal.take_profit} <= {signal.price}")
-                return False
+            # Check 5: Take profit validation
+            self.logger.info(f"📊 CHECK 5: Take Profit Validation")
+            if signal.take_profit:
+                self.logger.info(f"   Entry Price: ${signal.price:.4f}")
+                self.logger.info(f"   Take Profit: ${signal.take_profit:.4f}")
+                if signal.take_profit <= signal.price:
+                    self.logger.warning(f"❌ FAILED - Invalid take profit: ${signal.take_profit:.4f} <= ${signal.price:.4f}")
+                    return False
+                take_profit_distance = signal.take_profit - signal.price
+                take_profit_percentage = (take_profit_distance / signal.price) * 100
+                self.logger.info(f"   Take Profit Distance: ${take_profit_distance:.4f} ({take_profit_percentage:.2f}%)")
+                self.logger.info(f"✅ PASSED - Take profit is valid")
+            else:
+                self.logger.info(f"⚠️  No take profit set - will use default calculation")
+            
+            # Check 6: Risk-Reward Ratio (if both stop loss and take profit are set)
+            if signal.stop_loss and signal.take_profit:
+                risk_reward_ratio = self.calculate_risk_reward_ratio(signal)
+                self.logger.info(f"📊 CHECK 6: Risk-Reward Ratio")
+                self.logger.info(f"   Risk-Reward Ratio: {risk_reward_ratio:.2f}:1" if risk_reward_ratio else "   Could not calculate R:R ratio")
+                if risk_reward_ratio and risk_reward_ratio < 1.0:
+                    self.logger.warning(f"⚠️  WARNING - Poor risk-reward ratio: {risk_reward_ratio:.2f}:1")
+                elif risk_reward_ratio:
+                    self.logger.info(f"✅ Good risk-reward ratio: {risk_reward_ratio:.2f}:1")
+            
+            # All checks passed
+            self.logger.info(f"🎉 ALL RISK CHECKS PASSED - Trade approved for {signal.symbol}")
+            self.logger.info(f"   Final Position Size: {position_size:.6f} {signal.symbol}")
+            self.logger.info(f"   Final Trade Value: ${trade_value:.2f}")
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Error validating trade: {e}")
+            self.logger.error(f"❌ Error validating trade: {e}")
             return False
     
     def calculate_position_size(self, signal: TradingSignal, balance: float) -> float:
@@ -80,32 +136,64 @@ class RiskManagementService(IRiskManager):
             Position size in base currency units
         """
         try:
+            self.logger.info(f"💰 POSITION SIZE CALCULATION for {signal.symbol}")
+            self.logger.info(f"   Sizing Method: {self.config.position_sizing_method}")
+            self.logger.info(f"   Account Balance: ${balance:.2f}")
+            
             if self.config.position_sizing_method == "fixed":
-                # Fixed dollar amount
-                return balance * 0.02  # 2% of balance
+                # Fixed percentage method
+                percentage = 0.02  # 2% of balance
+                position_size = balance * percentage
+                self.logger.info(f"   Method: Fixed percentage ({percentage*100}%)")
+                self.logger.info(f"   Calculation: ${balance:.2f} × {percentage} = {position_size:.6f}")
+                return position_size
             
             elif self.config.position_sizing_method == "percent_risk":
                 # Risk-based position sizing
+                self.logger.info(f"   Method: Percent risk-based")
+                self.logger.info(f"   Risk per trade: {self.config.risk_per_trade_percentage}%")
+                
                 if not signal.stop_loss:
                     # If no stop loss, use default 2%
-                    return balance * 0.02
+                    fallback_size = balance * 0.02
+                    self.logger.info(f"   No stop loss provided - using default 2%")
+                    self.logger.info(f"   Fallback calculation: ${balance:.2f} × 0.02 = {fallback_size:.6f}")
+                    return fallback_size
                 
                 risk_amount = balance * (self.config.risk_per_trade_percentage / 100)
                 price_risk = signal.price - signal.stop_loss
                 
-                if price_risk <= 0:
-                    return balance * 0.02  # Fallback
+                self.logger.info(f"   Entry Price: ${signal.price:.4f}")
+                self.logger.info(f"   Stop Loss: ${signal.stop_loss:.4f}")
+                self.logger.info(f"   Price Risk: ${price_risk:.4f}")
+                self.logger.info(f"   Risk Amount: ${risk_amount:.2f}")
                 
-                position_size = risk_amount / price_risk
-                return min(position_size, self.config.max_position_size)
+                if price_risk <= 0:
+                    fallback_size = balance * 0.02
+                    self.logger.warning(f"   Invalid price risk (≤0) - using fallback: {fallback_size:.6f}")
+                    return fallback_size
+                
+                calculated_size = risk_amount / price_risk
+                final_size = min(calculated_size, self.config.max_position_size)
+                
+                self.logger.info(f"   Calculated Size: {risk_amount:.2f} ÷ {price_risk:.4f} = {calculated_size:.6f}")
+                self.logger.info(f"   Max Position Limit: {self.config.max_position_size:.6f}")
+                self.logger.info(f"   Final Size: {final_size:.6f}")
+                
+                return final_size
             
             else:
                 # Default to fixed percentage
-                return balance * 0.02
+                default_size = balance * 0.02
+                self.logger.info(f"   Method: Default (2% fixed)")
+                self.logger.info(f"   Calculation: ${balance:.2f} × 0.02 = {default_size:.6f}")
+                return default_size
                 
         except Exception as e:
-            self.logger.error(f"Error calculating position size: {e}")
-            return balance * 0.01  # Conservative fallback
+            fallback_size = balance * 0.01
+            self.logger.error(f"❌ Error calculating position size: {e}")
+            self.logger.info(f"   Using conservative fallback: {fallback_size:.6f}")
+            return fallback_size
     
     def calculate_stop_loss(self, signal: TradingSignal) -> float:
         """

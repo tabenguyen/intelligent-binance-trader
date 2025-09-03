@@ -56,7 +56,7 @@ class TradingBot:
             testnet=config.testnet
         )
         
-        self.risk_manager: IRiskManager = RiskManagementService(config.risk_config)
+        self.risk_manager: IRiskManager = RiskManagementService(config)
         
         self.position_manager: IPositionManager = PositionManagementService(
             config.active_trades_file
@@ -96,45 +96,86 @@ class TradingBot:
     
     def _main_loop(self) -> None:
         """Main trading loop."""
+        cycle_count = 0
         while self.running:
             try:
+                cycle_count += 1
+                self.logger.info(f"🔄 Starting trading cycle #{cycle_count}")
+                start_time = time.time()
+                
                 self._trading_cycle()
+                
+                cycle_duration = time.time() - start_time
+                self.logger.info(f"⏱️  Cycle #{cycle_count} completed in {cycle_duration:.2f}s")
+                
+                # Calculate next scan time
+                next_scan_time = time.strftime('%H:%M:%S', time.localtime(time.time() + self.config.scan_interval))
+                self.logger.info(f"💤 Waiting {self.config.scan_interval}s until next scan (next: {next_scan_time})")
+                
                 time.sleep(self.config.scan_interval)
+                
             except Exception as e:
                 self.logger.error(f"Error in trading cycle: {e}")
                 self.notification_service.send_error_notification(str(e))
+                self.logger.info("💤 Waiting 60s before retrying after error...")
                 time.sleep(60)  # Wait before retrying
     
     def _trading_cycle(self) -> None:
         """Execute one trading cycle."""
         # Update existing positions
-        self._update_positions()
+        active_positions = self.position_manager.get_positions()
+        if active_positions:
+            self.logger.info(f"📊 Updating {len(active_positions)} active positions...")
+            self._update_positions()
+        else:
+            self.logger.info("📊 No active positions to update")
         
         # Scan for new opportunities
-        for symbol in self.config.symbols:
-            if not self.position_manager.has_position(symbol):
-                self._analyze_symbol(symbol)
-    
-    def _analyze_symbol(self, symbol: str) -> None:
-        """Analyze a symbol for trading opportunities."""
-        try:
-            # Get market data
-            market_data = self._get_market_data(symbol)
-            if not market_data:
-                return
+        symbols_to_scan = [symbol for symbol in self.config.symbols 
+                          if not self.position_manager.has_position(symbol)]
+        
+        if symbols_to_scan:
+            self.logger.info(f"🔍 Scanning {len(symbols_to_scan)} symbols for opportunities: {', '.join(symbols_to_scan)}")
             
-            # Run strategies
-            for strategy in self.strategies:
-                if not strategy.is_enabled():
-                    continue
-                
-                signal = strategy.analyze(market_data)
-                if signal and strategy.validate_signal(signal):
-                    self._process_signal(signal)
-                    break  # Only take first valid signal
+            signals_found = 0
+            signals_executed = 0
+            
+            for i, symbol in enumerate(symbols_to_scan, 1):
+                try:
+                    self.logger.info(f"📈 [{i}/{len(symbols_to_scan)}] Analyzing {symbol}...")
                     
-        except Exception as e:
-            self.logger.error(f"Error analyzing {symbol}: {e}")
+                    # Get market data
+                    market_data = self._get_market_data(symbol)
+                    if not market_data:
+                        self.logger.warning(f"⚠️  Could not get market data for {symbol}")
+                        continue
+                    
+                    # Run strategies
+                    for strategy in self.strategies:
+                        if not strategy.is_enabled():
+                            continue
+                        
+                        signal = strategy.analyze(market_data)
+                        if signal:
+                            signals_found += 1
+                            self.logger.info(f"📡 Signal detected for {symbol} by {strategy.__class__.__name__}")
+                            
+                            if strategy.validate_signal(signal):
+                                self.logger.info(f"✅ Signal validated for {symbol}")
+                                self._process_signal(signal)
+                                signals_executed += 1
+                                break  # Only take first valid signal
+                            else:
+                                self.logger.info(f"❌ Signal validation failed for {symbol}")
+                        
+                except Exception as e:
+                    self.logger.error(f"Error analyzing {symbol}: {e}")
+            
+            # Summary of scanning results
+            self.logger.info(f"📋 Scan completed: {signals_found} signals found, {signals_executed} executed")
+            
+        else:
+            self.logger.info("💼 All symbols have active positions - no scanning needed")
     
     def _get_market_data(self, symbol: str) -> Optional[MarketData]:
         """Get comprehensive market data for a symbol."""
@@ -208,10 +249,20 @@ class TradingBot:
         """Update all active positions."""
         positions = self.position_manager.get_positions()
         
-        for position in positions:
+        for i, position in enumerate(positions, 1):
             try:
+                self.logger.info(f"📊 [{i}/{len(positions)}] Updating position: {position.symbol}")
+                
                 # Get current price
                 current_price = self.market_data_provider.get_current_price(position.symbol)
+                
+                # Calculate P&L info
+                old_price = position.current_price
+                pnl = (current_price - position.entry_price) * position.quantity
+                pnl_percentage = ((current_price - position.entry_price) / position.entry_price) * 100
+                
+                self.logger.info(f"   Entry: ${position.entry_price:.4f} → Current: ${current_price:.4f} ({pnl_percentage:+.2f}%)")
+                self.logger.info(f"   P&L: ${pnl:+.2f} | Quantity: {position.quantity:.6f}")
                 
                 # Update position
                 self.position_manager.update_position(position.symbol, current_price)
@@ -220,7 +271,7 @@ class TradingBot:
                 self._check_exit_conditions(position, current_price)
                 
             except Exception as e:
-                self.logger.error(f"Error updating position {position.symbol}: {e}")
+                self.logger.error(f"❌ Error updating position {position.symbol}: {e}")
     
     def _check_exit_conditions(self, position: Position, current_price: float) -> None:
         """Check if position should be closed."""

@@ -5,7 +5,7 @@ Market Data Service - Single Responsibility: Fetch and provide market data.
 import logging
 from typing import List, Optional
 from datetime import datetime
-from binance.spot import Spot as Client
+from binance.spot import Spot
 from binance.error import ClientError
 
 from ..core.interfaces import IMarketDataProvider
@@ -20,11 +20,17 @@ class BinanceMarketDataService(IMarketDataProvider):
     
     def __init__(self, api_key: str, api_secret: str, testnet: bool = True):
         """Initialize Binance client."""
-        self.client = Client(
-            api_key=api_key,
-            api_secret=api_secret,
-            base_url="https://testnet.binance.vision" if testnet else None
-        )
+        if testnet:
+            self.client = Spot(
+                api_key=api_key,
+                api_secret=api_secret,
+                base_url="https://testnet.binance.vision"
+            )
+        else:
+            self.client = Spot(
+                api_key=api_key,
+                api_secret=api_secret
+            )
         self.logger = logging.getLogger(__name__)
     
     def get_current_price(self, symbol: str) -> float:

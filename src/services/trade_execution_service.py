@@ -20,11 +20,17 @@ class BinanceTradeExecutor(ITradeExecutor):
     
     def __init__(self, api_key: str, api_secret: str, testnet: bool = True):
         """Initialize Binance client for trading."""
-        self.client = Client(
-            api_key=api_key,
-            api_secret=api_secret,
-            base_url="https://testnet.binance.vision" if testnet else None
-        )
+        if testnet:
+            self.client = Client(
+                api_key=api_key,
+                api_secret=api_secret,
+                base_url="https://testnet.binance.vision"
+            )
+        else:
+            self.client = Client(
+                api_key=api_key,
+                api_secret=api_secret
+            )
         self.logger = logging.getLogger(__name__)
     
     def execute_market_buy(self, symbol: str, quantity: float) -> OrderResult:

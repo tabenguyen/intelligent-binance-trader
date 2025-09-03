@@ -65,9 +65,23 @@ class TradingConfig:
     def from_env(cls) -> 'TradingConfig':
         """Create configuration from environment variables."""
         import os
+        from pathlib import Path
         from dotenv import load_dotenv
         
-        load_dotenv()
+        # Look for .env file in multiple locations
+        env_paths = [
+            Path.cwd() / ".env",  # Root directory
+            Path.cwd() / "config" / ".env",  # Config directory
+            Path.cwd() / "config" / ".env.test"  # Test config
+        ]
+        
+        for env_path in env_paths:
+            if env_path.exists():
+                load_dotenv(env_path)
+                break
+        else:
+            # If no .env file found, try loading without path (uses system env vars)
+            load_dotenv()
         
         risk_config = RiskConfig(
             max_position_size=float(os.getenv("MAX_POSITION_SIZE", "100.0")),
@@ -83,7 +97,7 @@ class TradingConfig:
             api_secret=os.getenv("BINANCE_API_SECRET", ""),
             testnet=os.getenv("USE_TESTNET", "true").lower() == "true",
             symbols=os.getenv("SYMBOLS", "BTCUSDT,ETHUSDT").split(","),
-            min_balance=float(os.getenv("MIN_BALANCE", "100.0")),
+            min_balance=float(os.getenv("MIN_USDT_BALANCE", "100.0")),
             trade_amount=float(os.getenv("TRADE_AMOUNT", "15.0")),
             timeframe=os.getenv("TIMEFRAME", "4h"),
             risk_config=risk_config,
