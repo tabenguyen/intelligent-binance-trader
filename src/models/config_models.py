@@ -17,6 +17,8 @@ class RiskConfig:
     trailing_stop_percentage: Optional[float] = None
     position_sizing_method: str = "fixed"
     risk_per_trade_percentage: float = 2.0
+    # Used when position_sizing_method == "fixed" (percent of balance to allocate)
+    fixed_allocation_percentage: float = 2.0
 
 
 @dataclass
@@ -53,6 +55,13 @@ class TradingConfig:
     enable_volume_filter: bool = True
     enable_advanced_exits: bool = False
     
+    # Trading Execution
+    order_type: str = "market"  # "market" or "limit"
+    limit_order_offset_percentage: float = 0.1  # For limit orders, offset from current price
+    max_limit_order_retries: int = 5
+    limit_order_retry_delay: int = 30  # seconds
+    enable_oco_orders: bool = True  # One-Cancels-Other orders for stop loss and take profit
+    
     # Logging
     log_level: str = "INFO"
     log_file: Optional[str] = None
@@ -84,12 +93,13 @@ class TradingConfig:
             load_dotenv()
         
         risk_config = RiskConfig(
-            max_position_size=float(os.getenv("MAX_POSITION_SIZE", "100.0")),
+            max_position_size=float(os.getenv("MAX_POSITION_SIZE", "1000.0")),
             max_daily_loss=float(os.getenv("MAX_DAILY_LOSS", "50.0")),
             max_drawdown=float(os.getenv("MAX_DRAWDOWN", "20.0")),
             stop_loss_percentage=float(os.getenv("STOP_LOSS_PCT", "5.0")),
             take_profit_percentage=float(os.getenv("TAKE_PROFIT_PCT", "10.0")),
-            risk_per_trade_percentage=float(os.getenv("RISK_PER_TRADE_PCT", "2.0"))
+            risk_per_trade_percentage=float(os.getenv("RISK_PER_TRADE_PCT", "2.0")),
+            fixed_allocation_percentage=float(os.getenv("FIXED_ALLOCATION_PCT", "2.0"))
         )
         
         return cls(
@@ -102,5 +112,12 @@ class TradingConfig:
             timeframe=os.getenv("TIMEFRAME", "4h"),
             risk_config=risk_config,
             strategies=[],  # Will be populated separately
-            log_level=os.getenv("LOG_LEVEL", "INFO")
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
+            
+            # Trading execution options
+            order_type=os.getenv("ORDER_TYPE", "market").lower(),
+            limit_order_offset_percentage=float(os.getenv("LIMIT_ORDER_OFFSET_PCT", "0.1")),
+            max_limit_order_retries=int(os.getenv("MAX_LIMIT_ORDER_RETRIES", "5")),
+            limit_order_retry_delay=int(os.getenv("LIMIT_ORDER_RETRY_DELAY", "30")),
+            enable_oco_orders=os.getenv("ENABLE_OCO_ORDERS", "true").lower() == "true"
         )

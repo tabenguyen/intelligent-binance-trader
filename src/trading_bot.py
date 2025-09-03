@@ -12,7 +12,7 @@ from .core.interfaces import (
     IRiskManager, IPositionManager, INotificationService,
     ITechnicalAnalyzer
 )
-from .models import TradingConfig, MarketData, TradingSignal, Position
+from .models import TradingConfig, MarketData, TradingSignal, Position, OrderResult
 from .services import (
     BinanceMarketDataService, BinanceTradeExecutor,
     TechnicalAnalysisService, RiskManagementService,
@@ -122,6 +122,9 @@ class TradingBot:
     
     def _trading_cycle(self) -> None:
         """Execute one trading cycle."""
+        # Refresh watchlist from market movers each scan
+        self._refresh_watchlist()
+
         # Update existing positions
         active_positions = self.position_manager.get_positions()
         if active_positions:
@@ -176,6 +179,33 @@ class TradingBot:
             
         else:
             self.logger.info("💼 All symbols have active positions - no scanning needed")
+
+    def _refresh_watchlist(self) -> None:
+        """Refresh symbols from top USDT movers and update config.symbols and watchlist file."""
+        try:
+            # Lazy import to avoid tight coupling
+            from .market_watcher import update_watchlist_from_top_movers
+            self.logger.info("📝 Refreshing watchlist from top 24h USDT movers...")
+            top = update_watchlist_from_top_movers(limit=20)
+            symbols = top if top else self._read_watchlist_file()
+            if symbols:
+                prev_count = len(self.config.symbols)
+                self.config.symbols = symbols
+                self.logger.info(f"✅ Watchlist updated: {prev_count} -> {len(symbols)} symbols")
+            else:
+                self.logger.warning("⚠️  Watchlist refresh returned no symbols; keeping existing list")
+        except Exception as e:
+            self.logger.warning(f"Could not refresh watchlist: {e}")
+
+    def _read_watchlist_file(self) -> List[str]:
+        """Read symbols from configured watchlist file."""
+        try:
+            path = self.config.watchlist_file
+            with open(path, 'r') as f:
+                lines = [ln.strip() for ln in f.readlines()]
+            return [s for s in lines if s]
+        except Exception:
+            return []
     
     def _get_market_data(self, symbol: str) -> Optional[MarketData]:
         """Get comprehensive market data for a symbol."""
@@ -206,21 +236,43 @@ class TradingBot:
     def _process_signal(self, signal: TradingSignal) -> None:
         """Process a trading signal."""
         try:
+            self.logger.info(f"🎯 PROCESSING SIGNAL for {signal.symbol}")
+            self.logger.info(f"   Strategy: {signal.strategy_name}")
+            self.logger.info(f"   Confidence: {signal.confidence:.1%}")
+            self.logger.info(f"   Signal Price: ${signal.price:.4f}")
+            
             # Get current balance
             current_balance = self.market_data_provider.get_account_balance()
+            self.logger.info(f"   Current Balance: ${current_balance:.2f}")
             
             # Validate trade with risk manager
             if not self.risk_manager.validate_trade(signal, current_balance):
-                self.logger.info(f"Signal for {signal.symbol} rejected by risk manager")
+                self.logger.warning(f"❌ Signal for {signal.symbol} rejected by risk manager")
                 return
             
             # Calculate position size
             position_size = self.risk_manager.calculate_position_size(signal, current_balance)
             
-            # Execute trade
-            result = self.trade_executor.execute_market_buy(signal.symbol, position_size)
+            # Calculate stop loss and take profit if not set
+            stop_loss = signal.stop_loss or self.risk_manager.calculate_stop_loss(signal)
+            take_profit = signal.take_profit or self.risk_manager.calculate_take_profit(signal)
             
-            if result.success:
+            self.logger.info(f"💰 EXECUTING TRADE for {signal.symbol}")
+            self.logger.info(f"   Order Type: {self.config.order_type.upper()}")
+            self.logger.info(f"   Position Size: {position_size:.6f}")
+            self.logger.info(f"   Stop Loss: ${stop_loss:.4f}")
+            self.logger.info(f"   Take Profit: ${take_profit:.4f}")
+            
+            # Execute trade based on order type
+            if self.config.order_type.lower() == "market":
+                result = self._execute_market_order(signal, position_size)
+            elif self.config.order_type.lower() == "limit":
+                result = self._execute_limit_order(signal, position_size)
+            else:
+                self.logger.error(f"❌ Unknown order type: {self.config.order_type}")
+                return
+            
+            if result and result.success:
                 # Create position
                 position = Position(
                     symbol=signal.symbol,
@@ -228,22 +280,108 @@ class TradingBot:
                     entry_price=result.filled_price,
                     current_price=result.filled_price,
                     entry_time=datetime.now(),
-                    stop_loss=signal.stop_loss,
-                    take_profit=signal.take_profit
+                    stop_loss=stop_loss,
+                    take_profit=take_profit
                 )
                 
+                # Add position to manager
                 self.position_manager.add_position(position)
+                
+                # Send notifications
                 self.notification_service.send_signal_notification(signal)
                 
-                self.logger.info(
-                    f"✅ Executed trade: {signal.symbol} @ ${result.filled_price:.2f}"
-                )
+                self.logger.info(f"🎉 TRADE EXECUTED SUCCESSFULLY!")
+                self.logger.info(f"   Symbol: {signal.symbol}")
+                self.logger.info(f"   Quantity: {result.filled_quantity:.6f}")
+                self.logger.info(f"   Entry Price: ${result.filled_price:.4f}")
+                self.logger.info(f"   Total Value: ${result.filled_quantity * result.filled_price:.2f}")
+                
+                # Place OCO order for stop loss and take profit if enabled
+                if self.config.enable_oco_orders:
+                    self._place_oco_order(position)
+                    
             else:
-                self.logger.error(f"Failed to execute trade: {result.error_message}")
+                error_msg = result.error_message if result else "Unknown error"
+                self.logger.error(f"❌ Failed to execute trade for {signal.symbol}: {error_msg}")
                 
         except Exception as e:
-            self.logger.error(f"Error processing signal: {e}")
+            self.logger.error(f"❌ Error processing signal for {signal.symbol}: {e}")
             self.notification_service.send_error_notification(str(e))
+    
+    def _execute_market_order(self, signal: TradingSignal, position_size: float) -> OrderResult:
+        """Execute a market order."""
+        return self.trade_executor.execute_market_buy(signal.symbol, position_size)
+    
+    def _execute_limit_order(self, signal: TradingSignal, position_size: float) -> OrderResult:
+        """Execute a limit order with retries."""
+        # Offset used to compute limit price from the latest market price each attempt
+        offset = self.config.limit_order_offset_percentage / 100
+        self.logger.info(f"📋 Limit order strategy (offset {self.config.limit_order_offset_percentage}% below last price)")
+        
+        for attempt in range(1, self.config.max_limit_order_retries + 1):
+            # Refresh current price before each attempt
+            try:
+                current_price = self.market_data_provider.get_current_price(signal.symbol)
+                if not current_price or current_price <= 0:
+                    raise ValueError("invalid current price")
+            except Exception:
+                current_price = signal.price
+                self.logger.warning(f"⚠️  Could not fetch current price; using signal price ${signal.price:.4f}")
+
+            limit_price = current_price * (1 - offset)
+
+            self.logger.info(
+                f"🔄 Limit order attempt {attempt}/{self.config.max_limit_order_retries} | "
+                f"Last Price: ${current_price:.4f} -> Limit: ${limit_price:.4f}"
+            )
+            
+            result = self.trade_executor.execute_limit_buy(signal.symbol, position_size, limit_price)
+            
+            if result.success:
+                # Check if order was filled immediately
+                if result.filled_quantity > 0:
+                    self.logger.info(f"✅ Limit order filled immediately!")
+                    return result
+                else:
+                    # Order placed, wait and check status
+                    self.logger.info(f"⏳ Limit order placed, waiting {self.config.limit_order_retry_delay}s...")
+                    time.sleep(self.config.limit_order_retry_delay)
+                    
+                    # TODO: Check order status and handle partial fills
+                    # For now, cancel and retry with market order on last attempt
+                    if attempt == self.config.max_limit_order_retries:
+                        self.logger.warning(f"⚠️  Limit order not filled after {attempt} attempts, switching to market order")
+                        self.trade_executor.cancel_order(signal.symbol, result.order_id)
+                        return self.trade_executor.execute_market_buy(signal.symbol, position_size)
+                    else:
+                        # Cancel and retry
+                        self.trade_executor.cancel_order(signal.symbol, result.order_id)
+            else:
+                self.logger.warning(f"⚠️  Limit order attempt {attempt} failed: {result.error_message}")
+                
+        # If all attempts failed, try market order as fallback
+        self.logger.warning(f"⚠️  All limit order attempts failed, trying market order as fallback")
+        return self.trade_executor.execute_market_buy(signal.symbol, position_size)
+    
+    def _place_oco_order(self, position: Position) -> None:
+        """Place OCO (One-Cancels-Other) order for stop loss and take profit."""
+        try:
+            self.logger.info(f"📋 Placing OCO order for {position.symbol}")
+            
+            result = self.trade_executor.execute_oco_order(
+                symbol=position.symbol,
+                quantity=position.quantity,
+                stop_price=position.stop_loss,
+                limit_price=position.take_profit
+            )
+            
+            if result.success:
+                self.logger.info(f"✅ OCO order placed successfully (ID: {result.order_id})")
+            else:
+                self.logger.error(f"❌ Failed to place OCO order: {result.error_message}")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error placing OCO order for {position.symbol}: {e}")
     
     def _update_positions(self) -> None:
         """Update all active positions."""

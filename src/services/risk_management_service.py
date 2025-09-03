@@ -51,6 +51,11 @@ class RiskManagementService(IRiskManager):
             # Calculate position size for further checks
             position_size = self.calculate_position_size(signal, current_balance)
             self.logger.info(f"💰 Calculated Position Size: {position_size:.6f} {signal.symbol}")
+
+            # Reject trades with zero or negative calculated size (e.g., below $10 notional)
+            if position_size <= 0:
+                self.logger.warning("❌ FAILED - Calculated position size is 0; cannot place order below $10 notional or with invalid sizing")
+                return False
             
             # Check 2: Maximum position size limit
             self.logger.info(f"📊 CHECK 2: Maximum Position Size")
@@ -141,12 +146,22 @@ class RiskManagementService(IRiskManager):
             self.logger.info(f"   Account Balance: ${balance:.2f}")
             
             if self.config.position_sizing_method == "fixed":
-                # Fixed percentage method
-                percentage = 0.02  # 2% of balance
-                position_size = balance * percentage
+                # Fixed allocation method (convert USDT to base quantity)
+                percentage = float(self.config.fixed_allocation_percentage) / 100.0
+                usdt_to_spend = balance * percentage
+                # Enforce minimum notional of 10 USDT
+                if usdt_to_spend < 10.0:
+                    if balance >= 10.0:
+                        self.logger.info("   Enforcing minimum notional: bumping spend to $10.00")
+                        usdt_to_spend = 10.0
+                    else:
+                        self.logger.warning("   Balance below $10; cannot meet minimum notional. Skipping trade.")
+                        return 0.0
+                position_qty = usdt_to_spend / max(signal.price, 1e-12)
                 self.logger.info(f"   Method: Fixed percentage ({percentage*100}%)")
-                self.logger.info(f"   Calculation: ${balance:.2f} × {percentage} = {position_size:.6f}")
-                return position_size
+                self.logger.info(f"   USDT to spend: ${usdt_to_spend:.6f}")
+                self.logger.info(f"   Calculation: ${usdt_to_spend:.6f} ÷ ${signal.price:.6f} = {position_qty:.6f} (qty)")
+                return position_qty
             
             elif self.config.position_sizing_method == "percent_risk":
                 # Risk-based position sizing
@@ -183,16 +198,36 @@ class RiskManagementService(IRiskManager):
                 return final_size
             
             else:
-                # Default to fixed percentage
-                default_size = balance * 0.02
+                # Default to fixed percentage (2%) in base quantity
+                usdt_to_spend = balance * 0.02
+                # Enforce minimum notional of 10 USDT
+                if usdt_to_spend < 10.0:
+                    if balance >= 10.0:
+                        self.logger.info("   Enforcing minimum notional: bumping spend to $10.00")
+                        usdt_to_spend = 10.0
+                    else:
+                        self.logger.warning("   Balance below $10; cannot meet minimum notional. Skipping trade.")
+                        return 0.0
+                qty = usdt_to_spend / max(signal.price, 1e-12)
                 self.logger.info(f"   Method: Default (2% fixed)")
-                self.logger.info(f"   Calculation: ${balance:.2f} × 0.02 = {default_size:.6f}")
-                return default_size
+                self.logger.info(f"   USDT to spend: ${usdt_to_spend:.6f}")
+                self.logger.info(f"   Calculation: ${usdt_to_spend:.6f} ÷ ${signal.price:.6f} = {qty:.6f} (qty)")
+                return qty
                 
         except Exception as e:
-            fallback_size = balance * 0.01
+            # Conservative fallback: 1% of balance converted to quantity
+            usdt_to_spend = balance * 0.01
+            # Enforce minimum notional of 10 USDT
+            if usdt_to_spend < 10.0:
+                if balance >= 10.0:
+                    self.logger.info("   Enforcing minimum notional: bumping spend to $10.00")
+                    usdt_to_spend = 10.0
+                else:
+                    self.logger.warning("   Balance below $10; cannot meet minimum notional. Skipping trade.")
+                    return 0.0
+            fallback_size = usdt_to_spend / max(signal.price, 1e-12)
             self.logger.error(f"❌ Error calculating position size: {e}")
-            self.logger.info(f"   Using conservative fallback: {fallback_size:.6f}")
+            self.logger.info(f"   Using conservative fallback: {fallback_size:.6f} (qty)")
             return fallback_size
     
     def calculate_stop_loss(self, signal: TradingSignal) -> float:
