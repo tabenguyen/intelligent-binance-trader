@@ -58,10 +58,9 @@ class PositionManagementService(IPositionManager):
     def update_position_data(self, symbol: str, position: Position) -> None:
         """Update complete position data."""
         try:
-            if symbol in self.positions:
-                self.positions[symbol] = position
-                self._save_positions()
-                self.logger.debug(f"Updated position data for {symbol}")
+            self.positions[symbol] = position  # Store regardless of whether it exists
+            self._save_positions()
+            self.logger.debug(f"Updated position data for {symbol}")
         except Exception as e:
             self.logger.error(f"Error updating position data for {symbol}: {e}")
     
@@ -167,7 +166,8 @@ class PositionManagementService(IPositionManager):
                     entry_time=datetime.fromisoformat(position_data['entry_time']),
                     stop_loss=position_data.get('stop_loss'),
                     take_profit=position_data.get('take_profit'),
-                    trailing_stop=position_data.get('trailing_stop')
+                    trailing_stop=position_data.get('trailing_stop'),
+                    oco_order_id=position_data.get('oco_order_id')
                 )
                 self.positions[symbol] = position
             
@@ -193,7 +193,8 @@ class PositionManagementService(IPositionManager):
                     'entry_time': position.entry_time.isoformat(),
                     'stop_loss': position.stop_loss,
                     'take_profit': position.take_profit,
-                    'trailing_stop': position.trailing_stop
+                    'trailing_stop': position.trailing_stop,
+                    'oco_order_id': position.oco_order_id
                 }
             
             with open(self.data_file, 'w') as f:
