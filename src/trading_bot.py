@@ -177,14 +177,25 @@ class TradingBot:
                     self.logger.info(f"  {i}. {signal.symbol} - Core: {signal.core_conditions_count}/4, "
                                    f"Confidence: {signal.confidence:.1%}")
                 
-                # Process the highest priority signal
-                best_signal = all_signals[0]
-                self.logger.info(f"🎯 Processing highest priority signal: {best_signal.symbol} "
-                               f"(Core: {best_signal.core_conditions_count}/4)")
-                self._process_signal(best_signal)
+                # Process all signals in priority order
+                signals_executed = 0
+                for i, signal in enumerate(all_signals, 1):
+                    try:
+                        # Check if we already have a position for this symbol
+                        if self.position_manager.has_position(signal.symbol):
+                            self.logger.info(f"⏭️  Skipping {signal.symbol} - already have position")
+                            continue
+                        
+                        self.logger.info(f"🎯 Processing signal {i}/{len(all_signals)}: {signal.symbol} "
+                                       f"(Core: {signal.core_conditions_count}/4)")
+                        self._process_signal(signal)
+                        signals_executed += 1
+                        
+                    except Exception as e:
+                        self.logger.error(f"❌ Error processing signal for {signal.symbol}: {e}")
+                        continue
                 
                 signals_found = len(all_signals)
-                signals_executed = 1
             else:
                 signals_found = 0
                 signals_executed = 0
