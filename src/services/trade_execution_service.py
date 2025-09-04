@@ -185,6 +185,9 @@ class BinanceTradeExecutor(ITradeExecutor):
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         """Cancel an existing order."""
         try:
+            # Convert string order_id to int for API call
+            order_id_int = int(order_id) if isinstance(order_id, str) else order_id
+            
             # Check current order status first
             status = self.get_order_status(symbol, order_id)
             if status is None:
@@ -195,28 +198,41 @@ class BinanceTradeExecutor(ITradeExecutor):
                 return False
 
             # Attempt cancellation only if still active
-            self.client.cancel_order(symbol=symbol, orderId=order_id)
+            self.client.cancel_order(symbol=symbol, orderId=order_id_int)
             self.logger.info(f"Successfully cancelled order {order_id} for {symbol}")
             return True
         except ClientError as e:
             self.logger.error(f"Error cancelling order {order_id} for {symbol}: {e}")
             return False
+        except ValueError as e:
+            self.logger.warning(f"Invalid order ID format {order_id}: {e}")
+            return False
 
     def get_order_status(self, symbol: str, order_id: str) -> Optional[str]:
         """Get current status for an order (e.g., NEW, PARTIALLY_FILLED, FILLED, CANCELED)."""
         try:
-            order = self.client.get_order(symbol=symbol, orderId=order_id)
+            # Convert string order_id to int for API call
+            order_id_int = int(order_id) if isinstance(order_id, str) else order_id
+            order = self.client.get_order(symbol=symbol, orderId=order_id_int)
             return order.get('status')
         except ClientError as e:
             self.logger.warning(f"Could not get status for order {order_id} on {symbol}: {e}")
+            return None
+        except ValueError as e:
+            self.logger.warning(f"Invalid order ID format {order_id}: {e}")
             return None
 
     def get_order_details(self, symbol: str, order_id: str) -> Optional[dict]:
         """Get full order details from the exchange."""
         try:
-            return self.client.get_order(symbol=symbol, orderId=order_id)
+            # Convert string order_id to int for API call
+            order_id_int = int(order_id) if isinstance(order_id, str) else order_id
+            return self.client.get_order(symbol=symbol, orderId=order_id_int)
         except ClientError as e:
             self.logger.warning(f"Could not get order {order_id} on {symbol}: {e}")
+            return None
+        except ValueError as e:
+            self.logger.warning(f"Invalid order ID format {order_id}: {e}")
             return None
     
     def get_open_orders(self, symbol: str) -> List[dict]:

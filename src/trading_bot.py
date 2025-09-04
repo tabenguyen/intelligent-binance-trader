@@ -402,9 +402,11 @@ class TradingBot:
                     
                     # Check if order was filled during wait period
                     try:
+                        self.logger.info(f"🔍 Checking order status for {result.order_id}...")
                         order_details = self.trade_executor.get_order_details(signal.symbol, result.order_id)
                         if order_details:
                             order_status = order_details.get('status')
+                            self.logger.info(f"📋 Order {result.order_id} status: {order_status}")
                             if order_status == 'FILLED':
                                 self.logger.info(f"✅ Limit order was filled during wait period!")
                                 filled_qty = float(order_details.get('executedQty', 0))
@@ -422,6 +424,8 @@ class TradingBot:
                             elif order_status in ['PARTIALLY_FILLED']:
                                 self.logger.info(f"⚠️  Limit order partially filled, continuing...")
                                 # For partial fills, we could handle differently, but for now treat as not filled
+                        else:
+                            self.logger.warning(f"⚠️  Could not get order details for {result.order_id}")
                     except Exception as e:
                         self.logger.warning(f"Could not check order status: {e}")
                     
