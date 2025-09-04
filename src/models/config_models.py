@@ -74,50 +74,37 @@ class TradingConfig:
     def from_env(cls) -> 'TradingConfig':
         """Create configuration from environment variables."""
         import os
-        from pathlib import Path
-        from dotenv import load_dotenv
+        from ..utils.env_loader import load_environment, get_env, get_env_float, get_env_bool, get_env_int
         
-        # Look for .env file in multiple locations
-        env_paths = [
-            Path.cwd() / ".env",  # Root directory
-            Path.cwd() / "config" / ".env",  # Config directory
-            Path.cwd() / "config" / ".env.test"  # Test config
-        ]
-        
-        for env_path in env_paths:
-            if env_path.exists():
-                load_dotenv(env_path)
-                break
-        else:
-            # If no .env file found, try loading without path (uses system env vars)
-            load_dotenv()
+        # Ensure environment variables are loaded
+        load_environment()
         
         risk_config = RiskConfig(
-            max_position_size=float(os.getenv("MAX_POSITION_SIZE", "1000.0")),
-            max_daily_loss=float(os.getenv("MAX_DAILY_LOSS", "50.0")),
-            max_drawdown=float(os.getenv("MAX_DRAWDOWN", "20.0")),
-            stop_loss_percentage=float(os.getenv("STOP_LOSS_PCT", "5.0")),
-            take_profit_percentage=float(os.getenv("TAKE_PROFIT_PCT", "10.0")),
-            risk_per_trade_percentage=float(os.getenv("RISK_PER_TRADE_PCT", "2.0")),
-            fixed_allocation_percentage=float(os.getenv("FIXED_ALLOCATION_PCT", "2.0"))
+            max_position_size=get_env_float("MAX_POSITION_SIZE", 1000.0),
+            max_daily_loss=get_env_float("MAX_DAILY_LOSS", 50.0),
+            max_drawdown=get_env_float("MAX_DRAWDOWN", 20.0),
+            stop_loss_percentage=get_env_float("STOP_LOSS_PCT", 5.0),
+            take_profit_percentage=get_env_float("TAKE_PROFIT_PCT", 10.0),
+            risk_per_trade_percentage=get_env_float("RISK_PER_TRADE_PCT", 2.0),
+            fixed_allocation_percentage=get_env_float("FIXED_ALLOCATION_PCT", 2.0)
         )
         
         return cls(
-            api_key=os.getenv("BINANCE_API_KEY", ""),
-            api_secret=os.getenv("BINANCE_API_SECRET", ""),
-            testnet=os.getenv("USE_TESTNET", "true").lower() == "true",
-            symbols=os.getenv("SYMBOLS", "BTCUSDT,ETHUSDT").split(","),
-            min_balance=float(os.getenv("MIN_USDT_BALANCE", "100.0")),
-            trade_amount=float(os.getenv("TRADE_AMOUNT", "15.0")),
-            timeframe=os.getenv("TIMEFRAME", "4h"),
+            api_key=get_env("BINANCE_API_KEY", ""),
+            api_secret=get_env("BINANCE_API_SECRET", ""),
+            testnet=get_env_bool("USE_TESTNET", True),
+            symbols=get_env("SYMBOLS", "BTCUSDT,ETHUSDT").split(","),
+            min_balance=get_env_float("MIN_USDT_BALANCE", 100.0),
+            trade_amount=get_env_float("TRADE_AMOUNT", 15.0),
+            timeframe=get_env("TIMEFRAME", "4h"),
             risk_config=risk_config,
             strategies=[],  # Will be populated separately
-            log_level=os.getenv("LOG_LEVEL", "INFO"),
+            log_level=get_env("LOG_LEVEL", "INFO"),
             
             # Trading execution options
-            order_type=os.getenv("ORDER_TYPE", "market").lower(),
-            limit_order_offset_percentage=float(os.getenv("LIMIT_ORDER_OFFSET_PCT", "0.1")),
-            max_limit_order_retries=int(os.getenv("MAX_LIMIT_ORDER_RETRIES", "5")),
-            limit_order_retry_delay=int(os.getenv("LIMIT_ORDER_RETRY_DELAY", "30")),
-            enable_oco_orders=os.getenv("ENABLE_OCO_ORDERS", "true").lower() == "true"
+            order_type=get_env("ORDER_TYPE", "market").lower(),
+            limit_order_offset_percentage=get_env_float("LIMIT_ORDER_OFFSET_PCT", 0.1),
+            max_limit_order_retries=get_env_int("MAX_LIMIT_ORDER_RETRIES", 5),
+            limit_order_retry_delay=get_env_int("LIMIT_ORDER_RETRY_DELAY", 30),
+            enable_oco_orders=get_env_bool("ENABLE_OCO_ORDERS", True)
         )

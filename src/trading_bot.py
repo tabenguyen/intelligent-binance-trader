@@ -19,6 +19,7 @@ from .services import (
     PositionManagementService, LoggingNotificationService
 )
 from .strategies import EMACrossStrategy
+from .utils.config import load_strategy_configs
 
 
 class TradingBot:
@@ -450,12 +451,21 @@ class TradingBot:
             self.logger.error(f"Error checking exit conditions for {position.symbol}: {e}")
     
     def _initialize_strategies(self) -> List[IStrategy]:
-        """Initialize trading strategies."""
+        """Initialize trading strategies with proper configuration."""
         strategies = []
         
-        # Add EMA Cross Strategy
-        ema_strategy = EMACrossStrategy()
-        strategies.append(ema_strategy)
+        # Load strategy configurations from environment
+        strategy_configs = load_strategy_configs()
+        
+        # Add EMA Cross Strategy with proper configuration
+        ema_config = next((config for config in strategy_configs if "EMA Cross" in config.name), None)
+        if ema_config:
+            ema_strategy = EMACrossStrategy(ema_config)
+            strategies.append(ema_strategy)
+        else:
+            # Fallback to default if no config found
+            ema_strategy = EMACrossStrategy()
+            strategies.append(ema_strategy)
         
         # Add more strategies here as needed
         

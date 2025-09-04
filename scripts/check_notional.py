@@ -3,16 +3,16 @@
 Quick script to check minimum notional requirements for trading pairs
 """
 
-import os
+import sys
+sys.path.append('..')
+
 from binance.spot import Spot as Client
 from binance.error import ClientError
-from dotenv import load_dotenv
+from src.utils.env_loader import get_env, get_env_bool
 
-load_dotenv()
-
-USE_TESTNET = os.getenv("USE_TESTNET", "True").lower() in ("true", "1", "yes")
-API_KEY = os.getenv("BINANCE_API_KEY")
-API_SECRET = os.getenv("BINANCE_API_SECRET")
+USE_TESTNET = get_env_bool("USE_TESTNET", True)
+API_KEY = get_env("BINANCE_API_KEY")
+API_SECRET = get_env("BINANCE_API_SECRET")
 
 def get_symbol_info(client, symbol):
     """Get detailed symbol information including filters."""

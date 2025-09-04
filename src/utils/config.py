@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List
 
 from ..models import TradingConfig, RiskConfig, StrategyConfig
+from .env_loader import get_env_int, get_env_float, get_env_bool
 
 
 def load_config() -> TradingConfig:
@@ -46,18 +47,18 @@ def load_strategy_configs() -> List[StrategyConfig]:
         StrategyConfig(
             name="EMA Cross Strategy - 4H",
             parameters={
-                'rsi_lower_bound': int(os.getenv('RSI_LOWER', '45')),
-                'rsi_upper_bound': int(os.getenv('RSI_UPPER', '75')),
-                'ema_support_tolerance': float(os.getenv('EMA_TOLERANCE', '0.03')),
-                'core_conditions_required': int(os.getenv('CORE_CONDITIONS_REQ', '1')),
-                'enable_daily_trend_filter': os.getenv('ENABLE_DAILY_TREND', 'true').lower() == 'true',
-                'enable_atr_filter': os.getenv('ENABLE_ATR', 'true').lower() == 'true',
-                'enable_volume_filter': os.getenv('ENABLE_VOLUME', 'true').lower() == 'true',
-                'min_volume_ratio': float(os.getenv('MIN_VOLUME_RATIO', '1.2'))
+                'rsi_lower_bound': get_env_int('RSI_LOWER', 45),
+                'rsi_upper_bound': get_env_int('RSI_UPPER', 75),
+                'ema_support_tolerance': get_env_float('EMA_TOLERANCE', 0.03),
+                'core_conditions_required': get_env_int('CORE_CONDITIONS_REQ', 1),
+                'enable_daily_trend_filter': get_env_bool('ENABLE_DAILY_TREND', True),
+                'enable_atr_filter': get_env_bool('ENABLE_ATR', True),
+                'enable_volume_filter': get_env_bool('ENABLE_VOLUME', True),
+                'min_volume_ratio': get_env_float('MIN_VOLUME_RATIO', 1.2)
             },
             timeframe="4h",
             enabled=True,
-            confidence_threshold=float(os.getenv('CONFIDENCE_THRESHOLD', '0.7'))
+            confidence_threshold=get_env_float('CONFIDENCE_THRESHOLD', 0.7)
         )
     ]
 
