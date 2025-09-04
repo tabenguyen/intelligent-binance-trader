@@ -283,6 +283,18 @@ class TradingBot:
             stop_loss = signal.stop_loss or self.risk_manager.calculate_stop_loss(signal)
             take_profit = signal.take_profit or self.risk_manager.calculate_take_profit(signal)
             
+            # Refresh balance just before executing to ensure accuracy
+            final_balance = self.market_data_provider.get_account_balance()
+            if final_balance < current_balance * 0.9:  # Balance dropped significantly
+                self.logger.warning(f"⚠️  Balance changed during processing: ${current_balance:.2f} -> ${final_balance:.2f}")
+                # Re-validate with new balance
+                if not self.risk_manager.validate_trade(signal, final_balance):
+                    self.logger.warning(f"❌ Signal for {signal.symbol} no longer valid with current balance")
+                    return
+                # Recalculate position size with updated balance
+                position_size = self.risk_manager.calculate_position_size(signal, final_balance)
+                current_balance = final_balance
+            
             self.logger.info(f"💰 EXECUTING TRADE for {signal.symbol}")
             self.logger.info(f"   Order Type: {self.config.order_type.upper()}")
             self.logger.info(f"   Position Size: {position_size:.6f}")
@@ -377,8 +389,32 @@ class TradingBot:
                     self.logger.info(f"⏳ Limit order placed, waiting {self.config.limit_order_retry_delay}s...")
                     time.sleep(self.config.limit_order_retry_delay)
                     
-                    # TODO: Check order status and handle partial fills
-                    # For now, cancel and retry with market order on last attempt
+                    # Check if order was filled during wait period
+                    try:
+                        order_details = self.trade_executor.get_order_details(signal.symbol, result.order_id)
+                        if order_details:
+                            order_status = order_details.get('status')
+                            if order_status == 'FILLED':
+                                self.logger.info(f"✅ Limit order was filled during wait period!")
+                                filled_qty = float(order_details.get('executedQty', 0))
+                                avg_price = float(order_details.get('cummulativeQuoteQty', 0)) / filled_qty if filled_qty > 0 else result.filled_price
+                                
+                                # Return successful result
+                                return OrderResult(
+                                    success=True,
+                                    order_id=result.order_id,
+                                    filled_quantity=filled_qty,
+                                    filled_price=avg_price,
+                                    commission=0.0,  # TODO: Extract from order details
+                                    raw_response=order_details
+                                )
+                            elif order_status in ['PARTIALLY_FILLED']:
+                                self.logger.info(f"⚠️  Limit order partially filled, continuing...")
+                                # For partial fills, we could handle differently, but for now treat as not filled
+                    except Exception as e:
+                        self.logger.warning(f"Could not check order status: {e}")
+                    
+                    # Order not filled, cancel and retry or switch to market order
                     if attempt == self.config.max_limit_order_retries:
                         self.logger.warning(f"⚠️  Limit order not filled after {attempt} attempts, switching to market order")
                         self.trade_executor.cancel_order(signal.symbol, result.order_id)
