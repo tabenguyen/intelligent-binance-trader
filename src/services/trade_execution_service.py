@@ -5,7 +5,7 @@ Respects Binance symbol filters (PRICE_FILTER, LOT_SIZE, NOTIONAL) when placing 
 
 import logging
 import math
-from typing import Optional
+from typing import Optional, List
 from binance.spot import Spot as Client
 from binance.error import ClientError
 
@@ -218,6 +218,14 @@ class BinanceTradeExecutor(ITradeExecutor):
         except ClientError as e:
             self.logger.warning(f"Could not get order {order_id} on {symbol}: {e}")
             return None
+    
+    def get_open_orders(self, symbol: str) -> List[dict]:
+        """Get all open orders for a symbol."""
+        try:
+            return self.client.get_open_orders(symbol=symbol)
+        except ClientError as e:
+            self.logger.warning(f"Could not get open orders for {symbol}: {e}")
+            return []
     
     def get_min_notional(self, symbol: str) -> float:
         """Get minimum notional value for a symbol (backwards-compatible)."""

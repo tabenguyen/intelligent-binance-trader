@@ -55,6 +55,16 @@ class PositionManagementService(IPositionManager):
         except Exception as e:
             self.logger.error(f"Error updating position {symbol}: {e}")
     
+    def update_position_data(self, symbol: str, position: Position) -> None:
+        """Update complete position data."""
+        try:
+            if symbol in self.positions:
+                self.positions[symbol] = position
+                self._save_positions()
+                self.logger.debug(f"Updated position data for {symbol}")
+        except Exception as e:
+            self.logger.error(f"Error updating position data for {symbol}: {e}")
+    
     def close_position(self, symbol: str, exit_price: float) -> Trade:
         """Close a position and return the completed trade."""
         try:

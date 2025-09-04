@@ -59,6 +59,7 @@ class Position:
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     trailing_stop: Optional[float] = None
+    oco_order_id: Optional[str] = None  # Track OCO order for exit management
     
     @property
     def unrealized_pnl(self) -> float:

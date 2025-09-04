@@ -324,7 +324,11 @@ class TradingBot:
                 
                 # Place OCO order for stop loss and take profit if enabled
                 if self.config.enable_oco_orders:
-                    self._place_oco_order(position)
+                    oco_result = self._place_oco_order(position)
+                    if oco_result and oco_result.success:
+                        # Update position with OCO order ID
+                        position.oco_order_id = oco_result.order_id
+                        self.position_manager.update_position_data(position.symbol, position)
                     
             else:
                 error_msg = result.error_message if result else "Unknown error"
@@ -389,7 +393,7 @@ class TradingBot:
         self.logger.warning(f"⚠️  All limit order attempts failed, trying market order as fallback")
         return self.trade_executor.execute_market_buy(signal.symbol, position_size)
     
-    def _place_oco_order(self, position: Position) -> None:
+    def _place_oco_order(self, position: Position) -> Optional['OrderResult']:
         """Place OCO (One-Cancels-Other) order for stop loss and take profit."""
         try:
             self.logger.info(f"📋 Placing OCO order for {position.symbol}")
@@ -403,11 +407,14 @@ class TradingBot:
             
             if result.success:
                 self.logger.info(f"✅ OCO order placed successfully (ID: {result.order_id})")
+                return result
             else:
                 self.logger.error(f"❌ Failed to place OCO order: {result.error_message}")
+                return None
                 
         except Exception as e:
             self.logger.error(f"❌ Error placing OCO order for {position.symbol}: {e}")
+            return None
     
     def _update_positions(self) -> None:
         """Update all active positions."""
@@ -443,7 +450,51 @@ class TradingBot:
             should_close = False
             exit_reason = ""
             
-            # Check stop loss
+            # Check OCO order status (for positions with tracked OCO order IDs)
+            if position.oco_order_id:
+                try:
+                    order_status = self.trade_executor.get_order_status(position.symbol, position.oco_order_id)
+                    
+                    if order_status == "CANCELED":
+                        self.logger.warning(f"⚠️  OCO order {position.oco_order_id} for {position.symbol} was cancelled externally")
+                        self.logger.info(f"🗑️  Removing position {position.symbol} - no exit protection")
+                        
+                        # Close position record without executing trade (since OCO was cancelled externally)
+                        trade = self.position_manager.close_position(position.symbol, current_price)
+                        
+                        self.logger.info(f"✅ Position removed: {position.symbol} @ ${current_price:.4f} (OCO Cancelled)")
+                        return
+                        
+                    elif order_status in ["FILLED", "PARTIALLY_FILLED"]:
+                        self.logger.info(f"✅ OCO order executed for {position.symbol} - position should be closed")
+                        
+                        # Close position record (OCO already executed the exit)
+                        trade = self.position_manager.close_position(position.symbol, current_price)
+                        
+                        self.notification_service.send_trade_notification(trade)
+                        self.logger.info(f"✅ Position closed: {position.symbol} @ ${current_price:.4f} (OCO Executed)")
+                        return
+                        
+                except Exception as e:
+                    self.logger.warning(f"Could not check OCO order status for {position.symbol}: {e}")
+            
+            # For legacy positions without OCO order ID, check if any OCO orders exist
+            elif not position.oco_order_id:
+                try:
+                    open_orders = self.trade_executor.get_open_orders(position.symbol)
+                    oco_orders = [order for order in open_orders if order.get('type') == 'OCO']
+                    
+                    if not oco_orders:
+                        self.logger.warning(f"⚠️  No OCO orders found for {position.symbol} - position has no exit protection")
+                        self.logger.info(f"💡 Consider manually setting stop loss/take profit or closing position")
+                        
+                        # For legacy positions without exit protection, we'll keep them but warn
+                        # User can manually close them or add new OCO orders
+                        
+                except Exception as e:
+                    self.logger.warning(f"Could not check open orders for {position.symbol}: {e}")
+            
+            # Fallback: Check manual stop loss and take profit (if no OCO or OCO check failed)
             if position.stop_loss and current_price <= position.stop_loss:
                 should_close = True
                 exit_reason = "Stop Loss"
