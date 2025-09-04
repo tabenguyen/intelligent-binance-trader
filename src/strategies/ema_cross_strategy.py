@@ -96,7 +96,8 @@ class EMACrossStrategy(BaseStrategy):
             direction=TradeDirection.BUY,
             confidence=confidence,
             stop_loss=stop_loss,
-            take_profit=take_profit
+            take_profit=take_profit,
+            core_conditions_count=core_signals['count']
         )
         
         self.logger.info(

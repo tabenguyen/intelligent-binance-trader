@@ -141,8 +141,8 @@ class TradingBot:
         if symbols_to_scan:
             self.logger.info(f"🔍 Scanning {len(symbols_to_scan)} symbols for opportunities: {', '.join(symbols_to_scan)}")
             
-            signals_found = 0
-            signals_executed = 0
+            # Collect all signals first
+            all_signals = []
             
             for i, symbol in enumerate(symbols_to_scan, 1):
                 try:
@@ -160,20 +160,34 @@ class TradingBot:
                             continue
                         
                         signal = strategy.analyze(market_data)
-                        if signal:
-                            signals_found += 1
-                            self.logger.info(f"📡 Signal detected for {symbol} by {strategy.__class__.__name__}")
-                            
-                            if strategy.validate_signal(signal):
-                                self.logger.info(f"✅ Signal validated for {symbol}")
-                                self._process_signal(signal)
-                                signals_executed += 1
-                                break  # Only take first valid signal
-                            else:
-                                self.logger.info(f"❌ Signal validation failed for {symbol}")
+                        if signal and strategy.validate_signal(signal):
+                            all_signals.append(signal)
+                            self.logger.info(f"📡 Valid signal collected for {symbol} by {strategy.__class__.__name__} "
+                                           f"(Core: {signal.core_conditions_count}/4, Confidence: {signal.confidence:.1%})")
                         
                 except Exception as e:
                     self.logger.error(f"Error analyzing {symbol}: {e}")
+            
+            # Sort signals by core conditions count (descending), then by confidence (descending)
+            if all_signals:
+                all_signals.sort(key=lambda s: (s.core_conditions_count, s.confidence), reverse=True)
+                
+                self.logger.info(f"📋 Found {len(all_signals)} valid signals, processing in priority order:")
+                for i, signal in enumerate(all_signals, 1):
+                    self.logger.info(f"  {i}. {signal.symbol} - Core: {signal.core_conditions_count}/4, "
+                                   f"Confidence: {signal.confidence:.1%}")
+                
+                # Process the highest priority signal
+                best_signal = all_signals[0]
+                self.logger.info(f"🎯 Processing highest priority signal: {best_signal.symbol} "
+                               f"(Core: {best_signal.core_conditions_count}/4)")
+                self._process_signal(best_signal)
+                
+                signals_found = len(all_signals)
+                signals_executed = 1
+            else:
+                signals_found = 0
+                signals_executed = 0
             
             # Summary of scanning results
             self.logger.info(f"📋 Scan completed: {signals_found} signals found, {signals_executed} executed")

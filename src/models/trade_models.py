@@ -43,6 +43,7 @@ class TradingSignal:
     timestamp: datetime
     strategy_name: str
     indicators: Dict[str, Any]
+    core_conditions_count: int = 0
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     

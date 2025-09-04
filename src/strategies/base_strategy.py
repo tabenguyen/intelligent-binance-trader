@@ -94,7 +94,8 @@ class BaseStrategy(IStrategy):
     
     def create_signal(self, market_data: MarketData, direction: TradeDirection, 
                      confidence: float, stop_loss: Optional[float] = None,
-                     take_profit: Optional[float] = None) -> TradingSignal:
+                     take_profit: Optional[float] = None, 
+                     core_conditions_count: int = 0) -> TradingSignal:
         """
         Create a trading signal with common fields populated.
         """
@@ -106,6 +107,7 @@ class BaseStrategy(IStrategy):
             timestamp=datetime.now(),
             strategy_name=self.name,
             indicators=market_data.technical_analysis.indicators.copy(),
+            core_conditions_count=core_conditions_count,
             stop_loss=stop_loss,
             take_profit=take_profit
         )
