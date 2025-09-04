@@ -1,101 +1,441 @@
-# Coin Gemini Trading Bot
+# 🤖 Advanced Binance Trading Bot
 
-An automated trading bot for Binance that uses technical analysis to identify buy signals and execute trades.
+An intelligent, fully-automated trading bot for Binance that combines sophisticated technical analysis, risk management, and position tracking with enterprise-grade reliability and safety features.
 
-## Setup
+## 🌟 Key Features
 
-### 1. Environment Variables
+### 🧠 **Intelligent Trading Engine**
 
-This project uses python-dotenv to manage environment variables securely.
+- **Multi-Strategy Analysis**: EMA crossovers, RSI momentum, support/resistance levels
+- **Smart Signal Generation**: Only trades when multiple confluence conditions align
+- **Market Status Filtering**: Automatically filters out closed/suspended trading pairs
+- **Adaptive Risk Management**: Dynamic stop-loss and take-profit calculations
 
-1. Copy the example environment file:
+### 🛡️ **Enterprise-Grade Safety**
 
-   ```bash
-   cp .env.example .env
-   ```
+- **Balance-Aware Orders**: Uses actual account balances, not stale position data
+- **OCO Order Protection**: Automatic stop-loss and take-profit orders for every position
+- **Position Persistence**: Survives bot restarts with complete position tracking
+- **Duplicate Order Prevention**: Intelligent checks to prevent multiple orders on same symbol
+- **Order Status Verification**: Comprehensive order tracking and status validation
 
-2. Edit `.env` and add your actual Binance API credentials:
+### 🔧 **Advanced Position Management**
 
-   ```
-   BINANCE_API_KEY=your_actual_api_key_here
-   BINANCE_API_SECRET=your_actual_secret_key_here
-   ```
+- **Real-Time Balance Sync**: Verifies asset balances before placing orders
+- **OCO Order Recovery**: Automatic retry for failed OCO order placements
+- **Position Cleanup**: Removes stale positions for assets no longer held
+- **Smart Quantity Adjustment**: Respects all Binance filters (LOT_SIZE, PRICE_FILTER, NOTIONAL)
 
-3. Optional: Configure trading parameters in `.env`:
-   ```
-   USE_TESTNET=True
-   TRADE_AMOUNT_USDT=15.0
-   RISK_REWARD_RATIO=1.5
-   MIN_USDT_BALANCE=100.0
-   ```
+### 📊 **Comprehensive Monitoring**
 
-### 2. API Keys
+- **Live Position Tracking**: Real-time P&L and position status
+- **Market Data Integration**: Current prices, 24h volume, market trends
+- **Order Book Analysis**: Deep market analysis for optimal entry points
+- **Performance Analytics**: Trade success rates, profit/loss tracking
 
-- **For testing**: Get testnet keys from https://testnet.binance.vision/
-- **For live trading**: Get live keys from https://www.binance.com/
-- **Security**: Only enable "Enable Spot & Margin Trading" permissions, DO NOT enable withdrawals
+## 🚀 Quick Start
 
-### 3. Installation
-
-Install dependencies:
+### 1. **Environment Setup**
 
 ```bash
+# Clone and setup
+git clone <repository-url>
+cd trading-bot-ai
+
+# Install dependencies
 uv sync
+
+# Setup environment
+cp config/.env.example .env
+# Edit .env with your Binance API credentials
 ```
 
-### 4. Watchlist
+### 2. **API Configuration**
 
-Create a `watchlist.txt` file with the trading pairs you want to monitor (one per line):
+Edit `.env` file with your Binance API credentials:
+
+```env
+# Binance API Configuration
+BINANCE_API_KEY=your_actual_api_key_here
+BINANCE_API_SECRET=your_actual_secret_key_here
+USE_TESTNET=True  # Set to False for live trading
+
+# Trading Parameters
+TRADE_AMOUNT_USDT=15.0
+RISK_REWARD_RATIO=1.5
+MIN_USDT_BALANCE=100.0
+
+# Safety Settings
+MAX_POSITIONS=5
+ENABLE_OCO_ORDERS=True
+POSITION_TRACKING=True
+```
+
+### 3. **Configure Watchlist**
+
+Create your trading watchlist in `config/watchlist.txt`:
 
 ```
 BTCUSDT
 ETHUSDT
 ADAUSDT
+SOLUSDT
+DOTUSDT
 ```
 
-### 5. Running
+### 4. **Start Trading**
 
-#### Option A: Direct Python Execution
-
-Start the trading bot:
+#### 🖥️ **Direct Execution**
 
 ```bash
-uv run python trading_bot.py
+./start.sh start     # Start the bot
+./start.sh status    # Check status
+./start.sh logs      # View logs
+./start.sh stop      # Stop the bot
 ```
 
-#### Option B: Docker (Recommended for Production)
+#### 🐳 **Docker Deployment**
 
-1. Copy Docker environment file:
+```bash
+./docker.sh start    # Start with Docker
+./docker.sh logs     # Monitor logs
+./docker.sh stop     # Stop container
+```
 
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
+## 🛠️ **Management Tools**
 
-2. Start with Docker Compose:
+### **Position Management**
 
-   ```bash
-   # Using the management script (recommended)
-   ./docker.sh start
+```bash
+# Check current positions
+python scripts/check_balances.py
 
-   # Or manually
-   docker-compose up -d
-   ```
+# Verify OCO orders
+python scripts/check_open_orders.py
 
-3. View logs:
+# Clean up stale positions
+python scripts/comprehensive_oco_cleanup.py
 
-   ```bash
-   ./docker.sh logs
-   # Or manually
-   docker-compose logs -f
-   ```
+# Retry failed OCO orders
+python scripts/balance_aware_oco.py
+```
 
-4. Stop the bot:
-   ```bash
-   ./docker.sh stop
-   # Or manually
-   docker-compose down
-   ```
+### **Market Analysis**
+
+```bash
+# Test market status
+python scripts/test_market_status.py
+
+# Analyze trading opportunities
+python scripts/check_notional.py
+
+# Monitor order status
+python scripts/test_order_status.py
+```
+
+### **System Control**
+
+```bash
+# Bot lifecycle management
+./start.sh start|stop|restart|status|logs
+
+# Docker management
+./docker.sh build|start|stop|restart|logs|clean
+```
+
+## 📈 **Trading Strategy**
+
+### **Entry Conditions** (All must be met)
+
+1. **EMA Alignment**: 9 EMA > 21 EMA > 50 EMA (bullish trend)
+2. **RSI Momentum**: RSI between 30-70 (avoiding overbought/oversold)
+3. **Volume Confirmation**: Above-average trading volume
+4. **Market Status**: Symbol actively trading (not suspended)
+5. **Balance Validation**: Sufficient USDT available
+6. **Position Limit**: No existing position for the symbol
+
+### **Exit Strategy** (OCO Orders)
+
+- **Take Profit**: 1.5x risk distance above entry (configurable)
+- **Stop Loss**: Based on recent swing low with buffer
+- **Order Types**: OCO (One-Cancels-Other) for automatic execution
+
+### **Risk Management**
+
+- Maximum 1 position per symbol
+- Configurable position sizing
+- Automatic balance verification
+- Emergency stop mechanisms
+
+## 🏗️ **Architecture**
+
+### **Core Services**
+
+```
+src/
+├── core/              # Interface definitions and base classes
+├── models/            # Data models and configurations
+├── services/          # Business logic services
+│   ├── market_data_service.py      # Market data fetching
+│   ├── trade_execution_service.py  # Order execution
+│   ├── position_management_service.py # Position tracking
+│   ├── risk_management_service.py  # Risk controls
+│   └── technical_analysis_service.py # TA indicators
+├── strategies/        # Trading strategies
+└── utils/            # Utilities and configuration
+```
+
+### **Key Components**
+
+#### **Trading Bot** (`src/trading_bot.py`)
+
+- Main orchestration engine
+- Market scanning and signal generation
+- Order execution and position tracking
+
+#### **Market Watcher** (`src/market_watcher.py`)
+
+- Real-time market data collection
+- Symbol filtering and validation
+- Market status monitoring
+
+#### **Position Management** (`src/services/position_management_service.py`)
+
+- Active position tracking
+- OCO order management
+- Position persistence and recovery
+
+#### **Trade Execution** (`src/services/trade_execution_service.py`)
+
+- Binance API integration
+- Order placement and monitoring
+- Balance verification and validation
+
+## 🔧 **Configuration**
+
+### **Environment Variables**
+
+| Variable             | Description                  | Default  |
+| -------------------- | ---------------------------- | -------- |
+| `BINANCE_API_KEY`    | Binance API key              | Required |
+| `BINANCE_API_SECRET` | Binance API secret           | Required |
+| `USE_TESTNET`        | Use testnet for testing      | `True`   |
+| `TRADE_AMOUNT_USDT`  | Amount per trade             | `15.0`   |
+| `RISK_REWARD_RATIO`  | Risk/reward ratio            | `1.5`    |
+| `MIN_USDT_BALANCE`   | Minimum balance required     | `100.0`  |
+| `MAX_POSITIONS`      | Maximum concurrent positions | `5`      |
+| `ENABLE_OCO_ORDERS`  | Enable OCO protection        | `True`   |
+
+### **Trading Parameters**
+
+```python
+# In your .env file
+TRADE_AMOUNT_USDT=25.0        # Larger position sizes
+RISK_REWARD_RATIO=2.0         # More aggressive profit targets
+MIN_USDT_BALANCE=200.0        # Higher minimum balance
+MAX_POSITIONS=3               # Fewer concurrent positions
+```
+
+## 🚨 **Safety Features**
+
+### **Balance Protection**
+
+- ✅ Real-time balance verification before orders
+- ✅ Order quantity adjustment based on available funds
+- ✅ Minimum notional value compliance
+- ✅ Exchange filter adherence (LOT_SIZE, PRICE_FILTER)
+
+### **Position Safety**
+
+- ✅ Automatic OCO order placement
+- ✅ Position persistence across restarts
+- ✅ Duplicate position prevention
+- ✅ Stale position cleanup
+
+### **Order Safety**
+
+- ✅ Order status verification and retry logic
+- ✅ Market status validation before trading
+- ✅ API error handling and recovery
+- ✅ Rate limiting and request management
+
+### **System Safety**
+
+- ✅ Comprehensive logging and monitoring
+- ✅ Graceful shutdown handling
+- ✅ Automatic restart capabilities
+- ✅ Health check monitoring
+
+## 📊 **Monitoring & Analytics**
+
+### **Real-Time Monitoring**
+
+```bash
+# Check active positions
+tail -f logs/output.log | grep "Position"
+
+# Monitor OCO orders
+python scripts/check_open_orders.py
+
+# Balance overview
+python scripts/check_balances.py
+```
+
+### **Performance Tracking**
+
+- Position P&L tracking
+- Win/loss ratio calculation
+- Average holding period analysis
+- Risk-adjusted returns
+
+## 🐳 **Docker Deployment**
+
+### **Production Deployment**
+
+```bash
+# Build and deploy
+./docker.sh build
+./docker.sh start
+
+# Monitor
+./docker.sh logs
+./docker.sh status
+
+# Maintenance
+./docker.sh restart
+./docker.sh update
+```
+
+### **Docker Features**
+
+- 🔄 **Auto-restart**: Automatic recovery from crashes
+- 📊 **Resource limits**: Memory and CPU constraints
+- 💾 **Data persistence**: Logs and positions preserved
+- 🏥 **Health checks**: Container health monitoring
+- 🔒 **Security**: Non-root execution
+
+## 🔒 **Security Best Practices**
+
+### **API Security**
+
+- Use testnet for development and testing
+- Restrict API keys to specific IP addresses
+- Enable only necessary permissions (Spot Trading only)
+- Never commit API keys to version control
+
+### **Operational Security**
+
+- Regular balance monitoring
+- Position limit enforcement
+- Emergency stop procedures
+- Backup and recovery plans
+
+## 🛠️ **Troubleshooting**
+
+### **Common Issues**
+
+#### **"Insufficient Balance" Errors**
+
+```bash
+# Check actual balances
+python scripts/check_balances.py
+
+# Clean up stale positions
+python scripts/comprehensive_oco_cleanup.py
+```
+
+#### **OCO Order Failures**
+
+```bash
+# Retry OCO orders with balance validation
+python scripts/balance_aware_oco.py
+
+# Check open orders
+python scripts/check_open_orders.py
+```
+
+#### **Market Status Issues**
+
+```bash
+# Verify market status
+python scripts/test_market_status.py
+
+# Check symbol availability
+python scripts/check_notional.py
+```
+
+### **Log Analysis**
+
+```bash
+# View recent errors
+tail -100 logs/output.log | grep ERROR
+
+# Monitor position changes
+tail -f logs/output.log | grep "Position\|OCO\|Balance"
+
+# Check order execution
+tail -f logs/output.log | grep "Order\|Executed\|Placed"
+```
+
+## 📚 **Advanced Usage**
+
+### **Custom Strategies**
+
+Extend the bot with custom strategies by implementing the `BaseStrategy` interface:
+
+```python
+from src.strategies.base_strategy import BaseStrategy
+
+class MyCustomStrategy(BaseStrategy):
+    def generate_signal(self, market_data):
+        # Your custom logic here
+        pass
+```
+
+### **Risk Management Customization**
+
+Implement custom risk management rules:
+
+```python
+from src.services.risk_management_service import RiskManagementService
+
+class CustomRiskManager(RiskManagementService):
+    def validate_trade(self, signal, current_positions):
+        # Your custom risk logic
+        pass
+```
+
+### **Notification Integration**
+
+Add custom notifications for important events:
+
+```python
+from src.services.notification_service import NotificationService
+
+# Implement Telegram, Discord, or email notifications
+```
+
+## 🤝 **Contributing**
+
+1. Fork the repository
+2. Create a feature branch
+3. Implement your changes with tests
+4. Submit a pull request
+
+## ⚠️ **Disclaimer**
+
+This trading bot is for educational and research purposes. Cryptocurrency trading involves substantial risk of loss. Past performance does not guarantee future results. Use at your own risk and never invest more than you can afford to lose.
+
+## 📞 **Support**
+
+- 📖 **Documentation**: Check this README and inline code documentation
+- 🐛 **Issues**: Report bugs via GitHub issues
+- 💬 **Discussions**: Join community discussions
+- 📧 **Contact**: Reach out for enterprise support
+
+---
+
+**Built with ❤️ for the crypto trading community**
 
 ## Security Notes
 
