@@ -13,6 +13,7 @@ from .core.interfaces import (
     ITechnicalAnalyzer
 )
 from .models import TradingConfig, MarketData, TradingSignal, Position, OrderResult
+from .market_watcher import check_symbol_tradeable
 from .services import (
     BinanceMarketDataService, BinanceTradeExecutor,
     TechnicalAnalysisService, RiskManagementService,
@@ -148,6 +149,11 @@ class TradingBot:
                 try:
                     self.logger.info(f"📈 [{i}/{len(symbols_to_scan)}] Analyzing {symbol}...")
                     
+                    # Check if symbol is tradeable before analysis
+                    if not check_symbol_tradeable(symbol):
+                        self.logger.warning(f"⚠️  Skipping {symbol} - market is closed or suspended")
+                        continue
+                    
                     # Get market data
                     market_data = self._get_market_data(symbol)
                     if not market_data:
@@ -212,7 +218,7 @@ class TradingBot:
             # Lazy import to avoid tight coupling
             from .market_watcher import update_watchlist_from_top_movers
             self.logger.info("📝 Refreshing watchlist from top 24h USDT movers...")
-            top = update_watchlist_from_top_movers(limit=20)
+            top = update_watchlist_from_top_movers(limit=30)
             symbols = top if top else self._read_watchlist_file()
             if symbols:
                 prev_count = len(self.config.symbols)
@@ -266,6 +272,11 @@ class TradingBot:
             self.logger.info(f"   Strategy: {signal.strategy_name}")
             self.logger.info(f"   Confidence: {signal.confidence:.1%}")
             self.logger.info(f"   Signal Price: ${signal.price:.4f}")
+            
+            # Check if symbol is tradeable (market not closed/suspended)
+            if not check_symbol_tradeable(signal.symbol):
+                self.logger.warning(f"❌ Signal for {signal.symbol} rejected - market is closed or suspended")
+                return
             
             # Get current balance
             current_balance = self.market_data_provider.get_account_balance()

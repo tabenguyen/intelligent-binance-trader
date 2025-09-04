@@ -23,6 +23,28 @@ class MarketWatcher:
 		self.logger = logging.getLogger(__name__)
 		self.quote = quote.upper()
 
+	def get_active_symbols(self) -> set:
+		"""Get list of actively trading symbols (not closed/suspended)."""
+		try:
+			exchange_info = self.client.exchange_info()
+			active_symbols = set()
+			
+			for symbol_info in exchange_info.get("symbols", []):
+				symbol = symbol_info.get("symbol", "")
+				status = symbol_info.get("status", "")
+				
+				# Only include symbols that are actively trading
+				if status == "TRADING":
+					active_symbols.add(symbol)
+				else:
+					self.logger.debug(f"Skipping {symbol} - status: {status}")
+			
+			self.logger.info(f"Found {len(active_symbols)} actively trading symbols")
+			return active_symbols
+		except ClientError as e:
+			self.logger.error(f"Failed to fetch exchange info: {e}")
+			return set()
+
 	def get_top_movers(self, limit: int = 20) -> List[str]:
 		"""Return top symbols by 24h percentage change for the given quote (default USDT)."""
 		try:
@@ -30,6 +52,11 @@ class MarketWatcher:
 		except ClientError as e:
 			self.logger.error(f"Failed to fetch 24h tickers: {e}")
 			return []
+
+		# Get actively trading symbols first
+		active_symbols = self.get_active_symbols()
+		if not active_symbols:
+			self.logger.warning("No active symbols found, proceeding without filtering")
 
 		# Filter to quote pairs and exclude leveraged/stable tokens
 		symbols = []
@@ -45,6 +72,12 @@ class MarketWatcher:
 			base = sym[: -len(self.quote)]
 			if base in exclude_bases:
 				continue
+			
+			# Skip symbols that are not actively trading
+			if active_symbols and sym not in active_symbols:
+				self.logger.debug(f"Skipping {sym} - market closed or suspended")
+				continue
+			
 			# Keep only actively trading pairs
 			symbols.append(
 				{
@@ -57,7 +90,29 @@ class MarketWatcher:
 		# Sort by percentage change descending, then by quote volume to break ties
 		symbols.sort(key=lambda x: (x["change"], x["volume"]), reverse=True)
 		top = [s["symbol"] for s in symbols[:limit]]
+		self.logger.info(f"Selected {len(top)} top movers from {len(symbols)} active trading pairs")
 		return top
+
+	def is_symbol_tradeable(self, symbol: str) -> bool:
+		"""Check if a specific symbol is currently tradeable."""
+		try:
+			exchange_info = self.client.exchange_info()
+			
+			for symbol_info in exchange_info.get("symbols", []):
+				if symbol_info.get("symbol") == symbol:
+					status = symbol_info.get("status", "")
+					is_trading = status == "TRADING"
+					
+					if not is_trading:
+						self.logger.warning(f"Symbol {symbol} is not tradeable - status: {status}")
+					
+					return is_trading
+			
+			self.logger.warning(f"Symbol {symbol} not found in exchange info")
+			return False
+		except ClientError as e:
+			self.logger.error(f"Failed to check symbol {symbol} status: {e}")
+			return False
 
 	def write_watchlist(self, symbols: List[str], filepath: str) -> None:
 		"""Write symbols to watchlist file, one per line, overwrite existing."""
@@ -66,6 +121,17 @@ class MarketWatcher:
 		text = "\n".join(symbols)
 		path.write_text(text)
 		self.logger.info(f"Updated watchlist with {len(symbols)} symbols at {filepath}")
+
+
+def check_symbol_tradeable(symbol: str) -> bool:
+	"""Helper to check if a symbol is tradeable using current config."""
+	try:
+		config = TradingConfig.from_env()
+		watcher = MarketWatcher(config.api_key, config.api_secret, config.testnet)
+		return watcher.is_symbol_tradeable(symbol)
+	except Exception as e:
+		logging.getLogger(__name__).error(f"Failed to check if {symbol} is tradeable: {e}")
+		return False
 
 
 def update_watchlist_from_top_movers(limit: int = 20) -> Optional[List[str]]:
