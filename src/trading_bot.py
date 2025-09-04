@@ -347,11 +347,20 @@ class TradingBot:
                 
                 # Place OCO order for stop loss and take profit if enabled
                 if self.config.enable_oco_orders:
+                    self.logger.info(f"📋 Placing OCO order for {signal.symbol} position...")
                     oco_result = self._place_oco_order(position)
                     if oco_result and oco_result.success:
                         # Update position with OCO order ID
                         position.oco_order_id = oco_result.order_id
                         self.position_manager.update_position_data(position.symbol, position)
+                        self.logger.info(f"✅ OCO order successfully placed for {signal.symbol} (Order ID: {oco_result.order_id})")
+                    else:
+                        # OCO order failed - position remains unprotected
+                        error_msg = oco_result.error_message if oco_result else "Unknown error"
+                        self.logger.error(f"❌ CRITICAL: OCO order failed for {signal.symbol} - Position is unprotected!")
+                        self.logger.error(f"   Error: {error_msg}")
+                        self.logger.error(f"   Position Value: ${position.quantity * position.entry_price:.2f}")
+                        self.logger.error(f"   Manual Action Required: Please place stop-loss orders manually via Binance interface")
                     
             else:
                 error_msg = result.error_message if result else "Unknown error"
@@ -482,6 +491,32 @@ class TradingBot:
         """Place OCO (One-Cancels-Other) order for stop loss and take profit."""
         try:
             self.logger.info(f"📋 Placing OCO order for {position.symbol}")
+            self.logger.info(f"   Position Entry: ${position.entry_price:.6f}")
+            self.logger.info(f"   Position Quantity: {position.quantity}")
+            self.logger.info(f"   Stop Loss: ${position.stop_loss:.6f}")
+            self.logger.info(f"   Take Profit: ${position.take_profit:.6f}")
+            
+            # Calculate some diagnostics
+            try:
+                current_price = self.market_data.get_current_price(position.symbol)
+                pnl_pct = ((current_price - position.entry_price) / position.entry_price) * 100
+                stop_distance = abs(position.stop_loss - current_price) / current_price * 100
+                profit_distance = abs(position.take_profit - current_price) / current_price * 100
+                
+                self.logger.info(f"📊 OCO Order Context:")
+                self.logger.info(f"   Current Price: ${current_price:.6f}")
+                self.logger.info(f"   Current P&L: {pnl_pct:.2f}%")
+                self.logger.info(f"   Stop Loss Distance: {stop_distance:.2f}%")
+                self.logger.info(f"   Take Profit Distance: {profit_distance:.2f}%")
+                
+                # Validate price relationships
+                if position.stop_loss >= current_price:
+                    self.logger.warning(f"⚠️  STOP LOSS ISSUE: Stop loss ${position.stop_loss:.6f} >= current price ${current_price:.6f}")
+                if position.take_profit <= current_price:
+                    self.logger.warning(f"⚠️  TAKE PROFIT ISSUE: Take profit ${position.take_profit:.6f} <= current price ${current_price:.6f}")
+                    
+            except Exception as context_error:
+                self.logger.warning(f"⚠️  Could not gather OCO context: {context_error}")
             
             result = self.trade_executor.execute_oco_order(
                 symbol=position.symbol,
@@ -492,13 +527,48 @@ class TradingBot:
             
             if result.success:
                 self.logger.info(f"✅ OCO order placed successfully (ID: {result.order_id})")
+                self.logger.info(f"   Order protects {position.quantity} {position.symbol.replace('USDT', '')}")
+                self.logger.info(f"   Stop Loss: ${position.stop_loss:.6f}")
+                self.logger.info(f"   Take Profit: ${position.take_profit:.6f}")
                 return result
             else:
                 self.logger.error(f"❌ Failed to place OCO order: {result.error_message}")
+                
+                # Enhanced failure analysis
+                base_asset = position.symbol.replace('USDT', '').replace('BUSD', '').replace('BTC', '').replace('ETH', '')
+                self.logger.error(f"🔍 OCO FAILURE ANALYSIS for {position.symbol}:")
+                self.logger.error(f"   Asset: {base_asset}")
+                self.logger.error(f"   Required Quantity: {position.quantity}")
+                self.logger.error(f"   Position Value: ${position.quantity * position.entry_price:.2f}")
+                
+                # Log recent trade info if available
+                if hasattr(position, 'entry_time'):
+                    from datetime import datetime
+                    entry_time = datetime.fromisoformat(position.entry_time.replace('Z', '+00:00'))
+                    time_since_entry = datetime.now() - entry_time.replace(tzinfo=None)
+                    self.logger.error(f"   Time Since Entry: {time_since_entry}")
+                    if time_since_entry.total_seconds() < 60:
+                        self.logger.error(f"   💡 Recent trade - balance may need time to sync")
+                
+                self.logger.error(f"🛠️  IMMEDIATE ACTIONS:")
+                self.logger.error(f"   1. Check if {base_asset} balance is available")
+                self.logger.error(f"   2. Verify no conflicting orders exist")
+                self.logger.error(f"   3. Consider running balance-aware OCO script")
+                self.logger.error(f"   4. Position remains UNPROTECTED until OCO is placed!")
+                
                 return None
                 
         except Exception as e:
             self.logger.error(f"❌ Error placing OCO order for {position.symbol}: {e}")
+            self.logger.error(f"🚨 CRITICAL: Position {position.symbol} has NO EXIT PROTECTION!")
+            self.logger.error(f"   Quantity: {position.quantity}")
+            self.logger.error(f"   Entry Price: ${position.entry_price:.6f}")
+            self.logger.error(f"   Expected Stop Loss: ${position.stop_loss:.6f}")
+            self.logger.error(f"   Expected Take Profit: ${position.take_profit:.6f}")
+            self.logger.error(f"🛠️  MANUAL INTERVENTION REQUIRED:")
+            self.logger.error(f"   • Set manual stop loss/take profit orders")
+            self.logger.error(f"   • Monitor position closely")
+            self.logger.error(f"   • Run OCO retry scripts")
             return None
     
     def _update_positions(self) -> None:

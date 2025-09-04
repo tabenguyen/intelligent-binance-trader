@@ -151,12 +151,58 @@ class BinanceTradeExecutor(ITradeExecutor):
                          stop_price: float, limit_price: float) -> OrderResult:
         """Execute an OCO (One-Cancels-Other) order."""
         try:
+            # Log initial OCO order parameters
+            self.logger.info(f"🔧 OCO Order Request for {symbol}:")
+            self.logger.info(f"   Raw Quantity: {quantity}")
+            self.logger.info(f"   Raw Stop Price: ${stop_price:.8f}")
+            self.logger.info(f"   Raw Limit Price: ${limit_price:.8f}")
+            
             # Round values to appropriate precision
+            original_quantity = quantity
             quantity = self._round_quantity(symbol, quantity)
             if quantity <= 0:
+                self.logger.error(f"❌ Quantity adjustment failed: {original_quantity} → {quantity} (below minimum)")
                 raise ClientError(400, -1013, "Quantity too small after LOT_SIZE adjustment", {})
+            
+            original_stop = stop_price
+            original_limit = limit_price
             stop_price = self._round_price(symbol, stop_price)
             limit_price = self._round_price(symbol, limit_price)
+            
+            # Log formatted values
+            self.logger.info(f"🔧 OCO Order Formatted for {symbol}:")
+            self.logger.info(f"   Quantity: {original_quantity} → {quantity}")
+            self.logger.info(f"   Stop Price: ${original_stop:.8f} → ${stop_price:.8f}")
+            self.logger.info(f"   Limit Price: ${original_limit:.8f} → ${limit_price:.8f}")
+            
+            # Check account balance before placing order
+            try:
+                account_info = self.client.account()
+                base_asset = symbol.replace('USDT', '').replace('BUSD', '').replace('BTC', '').replace('ETH', '')
+                available_balance = 0.0
+                
+                for balance in account_info['balances']:
+                    if balance['asset'] == base_asset:
+                        available_balance = float(balance['free'])
+                        locked_balance = float(balance['locked'])
+                        self.logger.info(f"💰 {base_asset} Balance Check:")
+                        self.logger.info(f"   Available: {available_balance}")
+                        self.logger.info(f"   Locked: {locked_balance}")
+                        self.logger.info(f"   Requested: {quantity}")
+                        self.logger.info(f"   Sufficient: {'✅ Yes' if available_balance >= quantity else '❌ No'}")
+                        break
+                
+                if available_balance < quantity:
+                    self.logger.error(f"❌ Insufficient balance detected BEFORE API call:")
+                    self.logger.error(f"   Available: {available_balance} {base_asset}")
+                    self.logger.error(f"   Required: {quantity} {base_asset}")
+                    self.logger.error(f"   Shortfall: {quantity - available_balance} {base_asset}")
+                    
+            except Exception as balance_check_error:
+                self.logger.warning(f"⚠️  Could not pre-verify balance: {balance_check_error}")
+            
+            # Log final OCO order parameters before API call
+            self.logger.info(f"🚀 Executing OCO order via API...")
             
             response = self.client.new_oco_order(
                 symbol=symbol,
@@ -168,10 +214,56 @@ class BinanceTradeExecutor(ITradeExecutor):
                 stopLimitTimeInForce="GTC"
             )
             
+            self.logger.info(f"✅ OCO order API response received successfully")
             return self._parse_oco_response(response)
             
         except ClientError as e:
-            self.logger.error(f"Error executing OCO order for {symbol}: {e}")
+            # Enhanced error logging with detailed diagnostics
+            error_code = e.error_code if hasattr(e, 'error_code') else 'Unknown'
+            error_msg = str(e)
+            
+            self.logger.error(f"❌ OCO Order FAILED for {symbol}")
+            self.logger.error(f"   Error Code: {error_code}")
+            self.logger.error(f"   Error Message: {error_msg}")
+            
+            # Specific error code analysis
+            if error_code == -2010:
+                self.logger.error(f"🔍 INSUFFICIENT BALANCE ANALYSIS:")
+                self.logger.error(f"   This indicates the account doesn't have enough {symbol.replace('USDT', '')} to sell")
+                self.logger.error(f"   Possible causes:")
+                self.logger.error(f"   • Asset balance not yet updated after recent buy order")
+                self.logger.error(f"   • Asset already locked in other orders")
+                self.logger.error(f"   • Rounding/precision issues with quantity")
+                self.logger.error(f"   💡 SUGGESTED ACTIONS:")
+                self.logger.error(f"   • Wait a few seconds and retry")
+                self.logger.error(f"   • Check account balance manually")
+                self.logger.error(f"   • Use balance-aware OCO placement script")
+                
+            elif error_code == -1013:
+                self.logger.error(f"🔍 FILTER FAILURE ANALYSIS:")
+                self.logger.error(f"   This indicates the order doesn't meet exchange requirements")
+                self.logger.error(f"   Possible causes:")
+                self.logger.error(f"   • Quantity doesn't meet LOT_SIZE filter")
+                self.logger.error(f"   • Price doesn't meet PRICE_FILTER requirements")
+                self.logger.error(f"   • Order value below NOTIONAL minimum")
+                
+            elif error_code == -1102:
+                self.logger.error(f"🔍 PARAMETER ERROR ANALYSIS:")
+                self.logger.error(f"   Missing or malformed request parameters")
+                self.logger.error(f"   Check API parameter format and requirements")
+                
+            else:
+                self.logger.error(f"🔍 GENERAL ERROR ANALYSIS:")
+                self.logger.error(f"   Unexpected error code: {error_code}")
+                self.logger.error(f"   Check Binance API documentation for details")
+            
+            # Log recovery suggestions
+            self.logger.error(f"🛠️  RECOVERY OPTIONS:")
+            self.logger.error(f"   1. Run: python scripts/balance_aware_oco.py")
+            self.logger.error(f"   2. Run: python scripts/check_balances.py")
+            self.logger.error(f"   3. Run: python scripts/check_open_orders.py")
+            self.logger.error(f"   4. Check logs above for balance verification details")
+            
             return OrderResult(
                 success=False,
                 order_id=None,

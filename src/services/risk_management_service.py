@@ -149,13 +149,13 @@ class RiskManagementService(IRiskManager):
                 # Fixed allocation method (convert USDT to base quantity)
                 percentage = float(self.config.fixed_allocation_percentage) / 100.0
                 usdt_to_spend = balance * percentage
-                # Enforce minimum notional of 10 USDT
-                if usdt_to_spend < 10.0:
-                    if balance >= 10.0:
-                        self.logger.info("   Enforcing minimum notional: bumping spend to $10.00")
-                        usdt_to_spend = 10.0
+                # Enforce minimum notional from configuration
+                if usdt_to_spend < self.config.min_notional_usdt:
+                    if balance >= self.config.min_notional_usdt:
+                        self.logger.info(f"   Enforcing minimum notional: bumping spend to ${self.config.min_notional_usdt:.2f}")
+                        usdt_to_spend = self.config.min_notional_usdt
                     else:
-                        self.logger.warning("   Balance below $10; cannot meet minimum notional. Skipping trade.")
+                        self.logger.warning(f"   Balance below ${self.config.min_notional_usdt:.2f}; cannot meet minimum notional. Skipping trade.")
                         return 0.0
                 position_qty = usdt_to_spend / max(signal.price, 1e-12)
                 self.logger.info(f"   Method: Fixed percentage ({percentage*100}%)")
@@ -200,13 +200,13 @@ class RiskManagementService(IRiskManager):
             else:
                 # Default to fixed percentage (2%) in base quantity
                 usdt_to_spend = balance * 0.02
-                # Enforce minimum notional of 10 USDT
-                if usdt_to_spend < 10.0:
-                    if balance >= 10.0:
-                        self.logger.info("   Enforcing minimum notional: bumping spend to $10.00")
-                        usdt_to_spend = 10.0
+                # Enforce minimum notional from configuration
+                if usdt_to_spend < self.config.min_notional_usdt:
+                    if balance >= self.config.min_notional_usdt:
+                        self.logger.info(f"   Enforcing minimum notional: bumping spend to ${self.config.min_notional_usdt:.2f}")
+                        usdt_to_spend = self.config.min_notional_usdt
                     else:
-                        self.logger.warning("   Balance below $10; cannot meet minimum notional. Skipping trade.")
+                        self.logger.warning(f"   Balance below ${self.config.min_notional_usdt:.2f}; cannot meet minimum notional. Skipping trade.")
                         return 0.0
                 qty = usdt_to_spend / max(signal.price, 1e-12)
                 self.logger.info(f"   Method: Default (2% fixed)")
@@ -217,13 +217,13 @@ class RiskManagementService(IRiskManager):
         except Exception as e:
             # Conservative fallback: 1% of balance converted to quantity
             usdt_to_spend = balance * 0.01
-            # Enforce minimum notional of 10 USDT
-            if usdt_to_spend < 10.0:
-                if balance >= 10.0:
-                    self.logger.info("   Enforcing minimum notional: bumping spend to $10.00")
-                    usdt_to_spend = 10.0
+            # Enforce minimum notional from configuration
+            if usdt_to_spend < self.config.min_notional_usdt:
+                if balance >= self.config.min_notional_usdt:
+                    self.logger.info(f"   Enforcing minimum notional: bumping spend to ${self.config.min_notional_usdt:.2f}")
+                    usdt_to_spend = self.config.min_notional_usdt
                 else:
-                    self.logger.warning("   Balance below $10; cannot meet minimum notional. Skipping trade.")
+                    self.logger.warning(f"   Balance below ${self.config.min_notional_usdt:.2f}; cannot meet minimum notional. Skipping trade.")
                     return 0.0
             fallback_size = usdt_to_spend / max(signal.price, 1e-12)
             self.logger.error(f"❌ Error calculating position size: {e}")

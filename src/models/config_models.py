@@ -19,6 +19,8 @@ class RiskConfig:
     risk_per_trade_percentage: float = 2.0
     # Used when position_sizing_method == "fixed" (percent of balance to allocate)
     fixed_allocation_percentage: float = 2.0
+    # Minimum notional value in USDT for trade execution
+    min_notional_usdt: float = 15.0
 
 
 @dataclass
@@ -86,7 +88,8 @@ class TradingConfig:
             stop_loss_percentage=get_env_float("STOP_LOSS_PCT", 5.0),
             take_profit_percentage=get_env_float("TAKE_PROFIT_PCT", 10.0),
             risk_per_trade_percentage=get_env_float("RISK_PER_TRADE_PCT", 2.0),
-            fixed_allocation_percentage=get_env_float("FIXED_ALLOCATION_PCT", 2.0)
+            fixed_allocation_percentage=get_env_float("FIXED_ALLOCATION_PCT", 2.0),
+            min_notional_usdt=get_env_float("MIN_NOTIONAL_USDT", 15.0)
         )
         
         return cls(
