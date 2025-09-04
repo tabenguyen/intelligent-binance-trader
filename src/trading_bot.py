@@ -417,9 +417,43 @@ class TradingBot:
                     # Order not filled, cancel and retry or switch to market order
                     if attempt == self.config.max_limit_order_retries:
                         self.logger.warning(f"⚠️  Limit order not filled after {attempt} attempts, switching to market order")
+                        # Check if order was filled before cancelling
+                        order_status = self.trade_executor.get_order_status(signal.symbol, result.order_id)
+                        if order_status == 'FILLED':
+                            self.logger.info(f"✅ Order was filled before cancellation!")
+                            # Get filled order details and return success
+                            order_details = self.trade_executor.get_order_details(signal.symbol, result.order_id)
+                            if order_details:
+                                filled_qty = float(order_details.get('executedQty', 0))
+                                avg_price = float(order_details.get('cummulativeQuoteQty', 0)) / filled_qty if filled_qty > 0 else result.filled_price
+                                return OrderResult(
+                                    success=True,
+                                    order_id=result.order_id,
+                                    filled_quantity=filled_qty,
+                                    filled_price=avg_price,
+                                    commission=0.0,
+                                    raw_response=order_details
+                                )
                         self.trade_executor.cancel_order(signal.symbol, result.order_id)
                         return self.trade_executor.execute_market_buy(signal.symbol, position_size)
                     else:
+                        # Check if order was filled before cancelling
+                        order_status = self.trade_executor.get_order_status(signal.symbol, result.order_id)
+                        if order_status == 'FILLED':
+                            self.logger.info(f"✅ Order was filled before cancellation!")
+                            # Get filled order details and return success
+                            order_details = self.trade_executor.get_order_details(signal.symbol, result.order_id)
+                            if order_details:
+                                filled_qty = float(order_details.get('executedQty', 0))
+                                avg_price = float(order_details.get('cummulativeQuoteQty', 0)) / filled_qty if filled_qty > 0 else result.filled_price
+                                return OrderResult(
+                                    success=True,
+                                    order_id=result.order_id,
+                                    filled_quantity=filled_qty,
+                                    filled_price=avg_price,
+                                    commission=0.0,
+                                    raw_response=order_details
+                                )
                         # Cancel and retry
                         self.trade_executor.cancel_order(signal.symbol, result.order_id)
             else:
