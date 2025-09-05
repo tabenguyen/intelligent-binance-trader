@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to migrate existing active_trades.txt to include oco_order_id field.
+Script to migrate existing active_trades.json to include oco_order_id field.
 """
 
 import json

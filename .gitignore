@@ -2,7 +2,7 @@
 .env
 
 # Trading bot data
-active_trades.txt
+active_trades.json
 data/
 logs/
 

@@ -46,7 +46,7 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific - runtime files (but include structure)
-active_trades.txt
+active_trades.json
 logs/*.log
 
 # Docker build context exclusions

@@ -18,7 +18,7 @@ class PositionManagementService(IPositionManager):
     Handles position tracking, updates, and persistence.
     """
     
-    def __init__(self, data_file: str = "data/active_trades.txt"):
+    def __init__(self, data_file: str = "data/active_trades.json"):
         """Initialize position manager with data file."""
         self.data_file = Path(data_file)
         self.positions: Dict[str, Position] = {}

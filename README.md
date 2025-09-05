@@ -448,7 +448,7 @@ This trading bot is for educational and research purposes. Cryptocurrency tradin
 
 ### 🔄 **Persistent Active Trade Tracking**
 
-- Active OCO orders are automatically saved to `active_trades.txt`
+- Active OCO orders are automatically saved to `active_trades.json`
 - Bot can be safely restarted without losing track of ongoing trades
 - Prevents duplicate trades on the same symbol until OCO order completes
 - Automatic cleanup when trades are completed (profit or stop loss hit)

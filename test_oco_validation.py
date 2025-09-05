@@ -34,7 +34,7 @@ def test_oco_validation():
             awe_balance = market_service.get_account_balance('AWE')
             print(f"   Current AWE balance: {awe_balance}")
             
-            # Simulate position quantity (from active_trades.txt)
+            # Simulate position quantity (from active_trades.json)
             position_quantity = 286.0
             
             if awe_balance >= position_quantity:
@@ -51,7 +51,7 @@ def test_oco_validation():
             pundix_balance = market_service.get_account_balance('PUNDIX')
             print(f"   Current PUNDIX balance: {pundix_balance}")
             
-            # Simulate position quantity (from active_trades.txt)
+            # Simulate position quantity (from active_trades.json)
             position_quantity = 48.8
             
             if pundix_balance >= position_quantity:

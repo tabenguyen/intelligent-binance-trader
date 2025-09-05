@@ -59,7 +59,7 @@ def main():
             print(f"... and {len(non_zero_balances) - 20} more assets")
         
         print()
-        print("🔍 Checking specific assets from active_trades.txt...")
+        print("🔍 Checking specific assets from active_trades.json...")
         
         # Check specific assets mentioned in active_trades
         check_assets = ['GNO', 'PUNDIX', 'MKR']

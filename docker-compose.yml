@@ -21,7 +21,7 @@ services:
 
     # Volumes for persistent data
     volumes:
-      - ./active_trades.txt:/app/active_trades.txt
+      - ./active_trades.json:/app/active_trades.json
       - ./watchlist.txt:/app/watchlist.txt:ro
 
     # Logging configuration
@@ -46,7 +46,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c 'import sys; print(\"Bot is healthy\"); sys.exit(0)' || exit 1",
+          'python -c ''import sys; print("Bot is healthy"); sys.exit(0)'' || exit 1',
         ]
       interval: 5m
       timeout: 30s

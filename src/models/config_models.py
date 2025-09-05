@@ -70,7 +70,7 @@ class TradingConfig:
     
     # Paths
     watchlist_file: str = "config/watchlist.txt"
-    active_trades_file: str = "data/active_trades.txt"
+    active_trades_file: str = "data/active_trades.json"
     
     @classmethod
     def from_env(cls) -> 'TradingConfig':

@@ -62,7 +62,7 @@ def main():
         # Check specific symbols from active_trades
         check_symbols = ['GNOUSDT', 'PUNDIXUSDT', 'MKRUSDT']
         
-        print("🔍 Checking specific symbols from active_trades.txt...")
+        print("🔍 Checking specific symbols from active_trades.json...")
         for symbol in check_symbols:
             if symbol in orders_by_symbol:
                 print(f"⚠️  {symbol}: Has {len(orders_by_symbol[symbol])} open orders")
