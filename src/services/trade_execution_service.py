@@ -177,6 +177,11 @@ class BinanceTradeExecutor(ITradeExecutor):
             
             # Check account balance before placing order
             try:
+                # Apply the same rounding and tolerance logic as in trading bot
+                rounded_quantity = self._round_quantity(symbol, quantity)
+                tolerance = max(0.001, rounded_quantity * 0.001)  # 0.1% tolerance
+                required_balance = rounded_quantity - tolerance
+                
                 account_info = self.client.account()
                 base_asset = symbol.replace('USDT', '').replace('BUSD', '').replace('BTC', '').replace('ETH', '')
                 available_balance = 0.0
@@ -185,18 +190,23 @@ class BinanceTradeExecutor(ITradeExecutor):
                     if balance['asset'] == base_asset:
                         available_balance = float(balance['free'])
                         locked_balance = float(balance['locked'])
+                        
                         self.logger.info(f"💰 {base_asset} Balance Check:")
                         self.logger.info(f"   Available: {available_balance}")
                         self.logger.info(f"   Locked: {locked_balance}")
-                        self.logger.info(f"   Requested: {quantity}")
-                        self.logger.info(f"   Sufficient: {'✅ Yes' if available_balance >= quantity else '❌ No'}")
+                        self.logger.info(f"   Requested: {quantity} (original)")
+                        self.logger.info(f"   Rounded: {rounded_quantity}")
+                        self.logger.info(f"   Tolerance: {tolerance}")
+                        self.logger.info(f"   Required: {required_balance}")
+                        self.logger.info(f"   Sufficient: {'✅ Yes' if available_balance >= required_balance else '❌ No'}")
                         break
                 
-                if available_balance < quantity:
+                if available_balance < required_balance:
+                    deficit = required_balance - available_balance
                     self.logger.error(f"❌ Insufficient balance detected BEFORE API call:")
                     self.logger.error(f"   Available: {available_balance} {base_asset}")
-                    self.logger.error(f"   Required: {quantity} {base_asset}")
-                    self.logger.error(f"   Shortfall: {quantity - available_balance} {base_asset}")
+                    self.logger.error(f"   Required: {required_balance} {base_asset} (rounded: {rounded_quantity}, tolerance: {tolerance})")
+                    self.logger.error(f"   Shortfall: {deficit} {base_asset}")
                     
             except Exception as balance_check_error:
                 self.logger.warning(f"⚠️  Could not pre-verify balance: {balance_check_error}")

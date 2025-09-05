@@ -498,7 +498,7 @@ class TradingBot:
             
             # Calculate some diagnostics
             try:
-                current_price = self.market_data.get_current_price(position.symbol)
+                current_price = self.market_data_provider.get_current_price(position.symbol)
                 pnl_pct = ((current_price - position.entry_price) / position.entry_price) * 100
                 stop_distance = abs(position.stop_loss - current_price) / current_price * 100
                 profit_distance = abs(position.take_profit - current_price) / current_price * 100
@@ -639,15 +639,58 @@ class TradingBot:
                     open_orders = self.trade_executor.get_open_orders(position.symbol)
                     oco_orders = [order for order in open_orders if order.get('type') == 'OCO']
                     
-                    if not oco_orders:
+                    if oco_orders:
+                        # Found existing OCO orders, update position with the first one
+                        oco_order = oco_orders[0]
+                        position.oco_order_id = str(oco_order.get('orderId', ''))
+                        self.position_manager.update_position_data(position.symbol, position)
+                        self.logger.info(f"✅ Found existing OCO order for {position.symbol} (ID: {position.oco_order_id})")
+                    else:
                         self.logger.warning(f"⚠️  No OCO orders found for {position.symbol} - position has no exit protection")
-                        self.logger.info(f"💡 Consider manually setting stop loss/take profit or closing position")
-                        
-                        # For legacy positions without exit protection, we'll keep them but warn
-                        # User can manually close them or add new OCO orders
+                        # Validate we actually hold this asset before creating OCO
+                        base_asset = position.symbol.replace('USDT', '')
+                        try:
+                            current_balance = self.market_data_provider.get_account_balance(base_asset)
+                            
+                            # Round the position quantity to Binance precision (same as OCO order will use)
+                            rounded_quantity = self.trade_executor._round_quantity(position.symbol, position.quantity)
+                            
+                            # Use a small tolerance for floating-point precision issues (0.1% tolerance)
+                            tolerance = max(0.001, rounded_quantity * 0.001)  # At least 0.001 or 0.1% of quantity
+                            
+                            if current_balance >= (rounded_quantity - tolerance):
+                                self.logger.info(f"🔧 Attempting to create missing OCO order...")
+                                self.logger.info(f"   Verified balance: {current_balance} {base_asset}")
+                                self.logger.info(f"   Required quantity: {rounded_quantity} (original: {position.quantity})")
+                                self.logger.info(f"   Tolerance applied: {tolerance}")
+                                
+                                # Automatically create missing OCO order
+                                oco_result = self._place_oco_order(position)
+                                if oco_result and oco_result.success:
+                                    # Update position with new OCO order ID
+                                    position.oco_order_id = oco_result.order_id
+                                    self.position_manager.update_position_data(position.symbol, position)
+                                    self.logger.info(f"✅ Successfully created OCO order for {position.symbol} (ID: {oco_result.order_id})")
+                                else:
+                                    error_msg = oco_result.error_message if oco_result else "Unknown error"
+                                    self.logger.error(f"❌ Failed to create OCO order for {position.symbol}: {error_msg}")
+                                    self.logger.info(f"💡 Position remains unprotected - consider manual intervention")
+                            else:
+                                deficit = (rounded_quantity - tolerance) - current_balance
+                                self.logger.warning(f"⚠️  Insufficient balance to create OCO:")
+                                self.logger.warning(f"   Available: {current_balance} {base_asset}")
+                                self.logger.warning(f"   Required: {rounded_quantity} (rounded from {position.quantity})")
+                                self.logger.warning(f"   Deficit: {deficit:.6f} {base_asset}")
+                                self.logger.info(f"💡 Position may have been partially/fully sold outside the bot")
+                                self.logger.info(f"💡 Consider removing this position record or adjusting quantity")
+                                
+                        except Exception as balance_error:
+                            self.logger.warning(f"Could not verify balance for {base_asset}: {balance_error}")
+                            self.logger.info(f"💡 Consider manually setting stop loss/take profit or closing position")
                         
                 except Exception as e:
-                    self.logger.warning(f"Could not check open orders for {position.symbol}: {e}")
+                    self.logger.warning(f"Could not check/create OCO orders for {position.symbol}: {e}")
+                    self.logger.info(f"💡 Consider manually setting stop loss/take profit or closing position")
             
             # Fallback: Check manual stop loss and take profit (if no OCO or OCO check failed)
             if position.stop_loss and current_price <= position.stop_loss:
