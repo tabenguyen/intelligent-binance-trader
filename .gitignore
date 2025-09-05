@@ -1,5 +1,7 @@
 # Environment variables
 .env
+.env.backup.local
+.env.*.local
 
 # Trading bot data
 active_trades.json
