@@ -1,0 +1,88 @@
+name: Feature Request
+description: Suggest an idea for this AI-powered trading bot
+title: "[FEATURE] "
+labels: ["enhancement", "feature-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! 
+        
+        🤖 This is an AI-generated project with human oversight. Your suggestions help improve the AI-human collaboration.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Description
+      description: Is your feature request related to a problem? Please describe.
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see
+      placeholder: I would like to see...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What category does this feature belong to?
+      options:
+        - Trading Strategy
+        - Risk Management
+        - Position Management
+        - Market Analysis
+        - User Interface
+        - Configuration
+        - Documentation
+        - Testing
+        - Performance
+        - Security
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Solutions
+      description: Describe any alternative solutions or features you've considered
+      placeholder: Alternatively, we could...
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority Level
+      description: How important is this feature to you?
+      options:
+        - Nice to have
+        - Important
+        - Critical
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or examples about the feature request
+      placeholder: This would be useful because...
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Guidelines
+      description: Please confirm the following
+      options:
+        - label: This feature would improve trading safety or functionality
+          required: true
+        - label: I understand this is an educational AI-assisted project
+          required: true
+        - label: I'm willing to help test this feature if implemented
+          required: false
