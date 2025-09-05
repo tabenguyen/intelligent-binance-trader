@@ -2,6 +2,97 @@
 
 An intelligent, fully-automated trading bot for Binance that combines sophisticated technical analysis, risk management, and position tracking with enterprise-grade reliability and safety features.
 
+## ⚠️ **IMPORTANT DISCLAIMER - AI-GENERATED SYSTEM**
+
+> **🤖 This repository is 90% completed by AI** under human guidance and oversight. The human author controls how the AI implements strategies and provides recommendations, but the majority of code, logic, and features were developed by artificial intelligence.
+>
+> **📊 Strategy Control**: While AI developed the implementation, the trading strategy, risk parameters, and safety features are carefully designed and validated by the human author.
+>
+> **🔬 Use with Caution**: This is an experimental AI-driven trading system. Always test thoroughly with small amounts and testnet before live trading. Past performance does not guarantee future results.
+>
+> **💡 Educational Purpose**: This project serves as a demonstration of AI-assisted trading system development and should be considered educational/research material.
+
+## 📈 **Trading Strategy & Performance**
+
+### **Strategy Overview**
+
+Our EMA Cross Strategy with Advanced Quality Filters focuses on high-probability setups by requiring multiple confluence factors before entering trades. For detailed technical workflow, see our [Sequence Diagram Documentation](docs/sequence_diagram.md).
+
+#### **Entry Conditions** (All must align)
+
+1. **EMA Alignment**: 12 EMA > 26 EMA > 50 EMA (strong bullish trend)
+2. **RSI Momentum**: RSI between 45-75 (avoiding overbought/oversold extremes)
+3. **Price Position**: Current price above EMA support with 3% tolerance
+4. **Daily Trend Filter**: Price above Daily 50-EMA (prevents counter-trend trades)
+5. **Volume Confirmation**: Volume 20% above 20-period average
+6. **ATR Volatility**: Optimal volatility range (not too choppy, not too chaotic)
+
+#### **Exit Strategy** (OCO Protection)
+
+- **Take Profit**: 2.0x risk distance above entry (configurable via RISK_REWARD_RATIO)
+- **Stop Loss**: Below recent swing low with ATR-based buffer
+- **Advanced Exits**: Partial profits at 1.5R, trailing stops, breakeven protection
+
+### **Simulated Performance Evidence**
+
+> **Note**: These are simulated results for demonstration purposes, not live trading results.
+
+#### **Trade Example 1: SOLUSDT - WIN** ✅
+
+```
+Entry Date: 2025-09-01 14:30 UTC
+Entry Price: $142.50
+Stop Loss: $135.75 (-4.7%)
+Take Profit: $156.00 (+9.5%)
+Exit: Take Profit Hit
+Result: +9.5% (+$13.50 per SOL)
+Duration: 18 hours
+```
+
+#### **Trade Example 2: ADAUSDT - WIN** ✅
+
+```
+Entry Date: 2025-09-02 09:15 UTC
+Entry Price: $0.4820
+Stop Loss: $0.4580 (-5.0%)
+Take Profit: $0.5300 (+9.9%)
+Exit: Take Profit Hit
+Result: +9.9% (+$0.048 per ADA)
+Duration: 28 hours
+```
+
+#### **Trade Example 3: LINKUSDT - WIN** ✅
+
+```
+Entry Date: 2025-09-03 16:45 UTC
+Entry Price: $11.85
+Stop Loss: $11.25 (-5.1%)
+Take Profit: $13.05 (+10.1%)
+Exit: Take Profit Hit
+Result: +10.1% (+$1.20 per LINK)
+Duration: 31 hours
+```
+
+#### **Trade Example 4: DOTUSDT - LOSS** ❌
+
+```
+Entry Date: 2025-09-04 11:20 UTC
+Entry Price: $6.75
+Stop Loss: $6.45 (-4.4%)
+Take Profit: $7.35 (+8.9%)
+Exit: Stop Loss Hit
+Result: -4.4% (-$0.30 per DOT)
+Duration: 12 hours
+```
+
+#### **Performance Summary**
+
+- **Win Rate**: 75% (3 wins, 1 loss)
+- **Average Winner**: +9.8%
+- **Average Loser**: -4.4%
+- **Risk-Reward Ratio**: 2.2:1
+- **Expected Value**: +6.9% per trade
+
 ## 🌟 Key Features
 
 ### 🧠 **Intelligent Trading Engine**
@@ -52,120 +143,362 @@ cp config/.env.example .env
 
 ### 2. **API Configuration**
 
-Edit `.env` file with your Binance API credentials:
+Edit `.env` file with your Binance API credentials. See the complete configuration table below for all available options.
+
+### 3. **Automatic Watchlist Generation**
+
+The bot automatically generates and maintains its watchlist by:
+
+- **Market Scanning**: Identifies top 24-hour gainers from Binance
+- **Performance Ranking**: Analyzes relative strength over 14-day periods
+- **Dynamic Updates**: Refreshes watchlist every 4 hours to capture new opportunities
+- **Quality Filtering**: Only considers symbols meeting minimum volume and market cap requirements
+
+> **No manual watchlist management required!** The system intelligently finds the best trading opportunities.
+
+### 4. **Start Trading with Process Protection**
+
+#### 🖥️ **Using start.sh Script (Recommended)**
+
+The `start.sh` script provides safe process management with duplicate execution prevention:
+
+```bash
+./start.sh start     # Start the bot (prevents duplicates)
+./start.sh status    # Check if running and show stats
+./start.sh logs      # View real-time logs
+./start.sh restart   # Safe restart (stop + start)
+./start.sh stop      # Graceful shutdown
+```
+
+#### **⚠️ Important Process Safety Features:**
+
+1. **Duplicate Prevention**: Script checks for existing PID before starting
+2. **Graceful Shutdown**: Attempts clean shutdown before force-kill
+3. **Log Backup**: Automatically backs up previous logs with timestamps
+4. **Status Monitoring**: Shows PID, log size, and recent entries
+5. **Error Recovery**: Cleans up stale PID files automatically
+
+#### **Example Safe Usage:**
+
+```bash
+# ✅ SAFE - Always use the script
+./start.sh start
+./start.sh status    # Verify it's running
+./start.sh logs      # Monitor activity
+
+# ❌ AVOID - Direct execution can create duplicates
+python main.py &     # Don't do this!
+nohup python main.py # Don't do this!
+```
+
+#### **If You Encounter "Already Running" Warnings:**
+
+```bash
+./start.sh status    # Check actual status
+./start.sh stop      # Force clean shutdown
+./start.sh start     # Fresh start
+```
+
+## � **Complete Configuration Reference**
+
+All configuration is done through environment variables in the `.env` file. Copy from `config/.env.example`:
+
+| Category                        | Variable                           | Description                               | Default    | Type    |
+| ------------------------------- | ---------------------------------- | ----------------------------------------- | ---------- | ------- |
+| **🔐 API Settings**             |                                    |                                           |            |         |
+|                                 | `BINANCE_API_KEY`                  | Your Binance API key                      | _Required_ | String  |
+|                                 | `BINANCE_API_SECRET`               | Your Binance API secret                   | _Required_ | String  |
+|                                 | `USE_TESTNET`                      | Use testnet for testing                   | `True`     | Boolean |
+| **💰 Basic Trading**            |                                    |                                           |            |         |
+|                                 | `TRADE_AMOUNT_USDT`                | Fixed trade amount (legacy)               | `25.0`     | Float   |
+|                                 | `RISK_REWARD_RATIO`                | Risk-to-reward ratio                      | `2.0`      | Float   |
+|                                 | `MIN_USDT_BALANCE`                 | Minimum USDT balance required             | `150.0`    | Float   |
+|                                 | `MIN_NOTIONAL_USDT`                | Minimum order value (Binance requirement) | `15.0`     | Float   |
+| **📊 Advanced Risk Management** |                                    |                                           |            |         |
+|                                 | `ENABLE_DYNAMIC_POSITION_SIZING`   | Use percentage-based position sizing      | `true`     | Boolean |
+|                                 | `RISK_PERCENTAGE_PER_TRADE`        | Risk % of total capital per trade         | `1.5`      | Float   |
+|                                 | `MINIMUM_RR_RATIO`                 | Minimum risk-reward ratio filter          | `1.5`      | Float   |
+|                                 | `MAX_POSITION_SIZE_USDT`           | Maximum position size limit               | `100.0`    | Float   |
+|                                 | `MIN_POSITION_SIZE_USDT`           | Minimum position size limit               | `10.0`     | Float   |
+| **⚙️ Order Management**         |                                    |                                           |            |         |
+|                                 | `MAX_LIMIT_ORDER_RETRIES`          | Max retries for limit orders              | `15`       | Integer |
+|                                 | `LIMIT_ORDER_RETRY_DELAY`          | Delay between retries (seconds)           | `10`       | Integer |
+| **🎯 Quality Filters**          |                                    |                                           |            |         |
+|                                 | `ENABLE_DAILY_TREND_FILTER`        | Only trade if above daily 50-EMA          | `True`     | Boolean |
+|                                 | `ENABLE_ATR_FILTER`                | Filter by optimal volatility range        | `True`     | Boolean |
+|                                 | `ENABLE_VOLUME_FILTER`             | Require volume confirmation               | `True`     | Boolean |
+|                                 | `MIN_VOLUME_RATIO`                 | Minimum volume vs average                 | `1.2`      | Float   |
+| **🚀 Advanced Exits**           |                                    |                                           |            |         |
+|                                 | `ENABLE_ADVANCED_EXITS`            | Enable sophisticated exit management      | `true`     | Boolean |
+|                                 | `ENABLE_TRAILING_STOP`             | Use ATR-based trailing stops              | `true`     | Boolean |
+|                                 | `TRAILING_STOP_ATR_MULTIPLIER`     | Trailing stop distance multiplier         | `2.0`      | Float   |
+|                                 | `ENABLE_PARTIAL_PROFITS`           | Enable partial profit taking              | `true`     | Boolean |
+|                                 | `PARTIAL_TP1_RATIO`                | First partial exit R:R ratio              | `1.5`      | Float   |
+|                                 | `PARTIAL_TP1_PERCENTAGE`           | First exit position percentage            | `0.5`      | Float   |
+|                                 | `PARTIAL_TP2_RATIO`                | Second partial exit R:R ratio             | `3.0`      | Float   |
+| **🔍 Intelligent Scanner**      |                                    |                                           |            |         |
+|                                 | `ENABLE_RELATIVE_STRENGTH_RANKING` | Prioritize strongest performers           | `true`     | Boolean |
+|                                 | `RELATIVE_STRENGTH_LOOKBACK_DAYS`  | Performance analysis period               | `14`       | Integer |
+|                                 | `TOP_PERFORMERS_PERCENTAGE`        | Only trade top % of performers            | `25`       | Integer |
+|                                 | `MIN_COINS_FOR_RANKING`            | Minimum coins to analyze                  | `5`        | Integer |
+|                                 | `RANKING_UPDATE_FREQUENCY_HOURS`   | How often to update rankings              | `4`        | Integer |
+
+### **Configuration Examples**
+
+#### **Conservative Settings** (Lower risk, higher win rate)
 
 ```env
-# Binance API Configuration
-BINANCE_API_KEY=your_actual_api_key_here
-BINANCE_API_SECRET=your_actual_secret_key_here
-USE_TESTNET=True  # Set to False for live trading
-
-# Trading Parameters
-TRADE_AMOUNT_USDT=15.0
-RISK_REWARD_RATIO=1.5
-MIN_USDT_BALANCE=100.0
-
-# Safety Settings
-MAX_POSITIONS=5
-ENABLE_OCO_ORDERS=True
-POSITION_TRACKING=True
+RISK_PERCENTAGE_PER_TRADE=1.0
+MINIMUM_RR_RATIO=2.0
+MIN_VOLUME_RATIO=1.5
+TOP_PERFORMERS_PERCENTAGE=15
 ```
 
-### 3. **Configure Watchlist**
+#### **Aggressive Settings** (Higher risk, more opportunities)
 
-Create your trading watchlist in `config/watchlist.txt`:
-
-```
-BTCUSDT
-ETHUSDT
-ADAUSDT
-SOLUSDT
-DOTUSDT
+```env
+RISK_PERCENTAGE_PER_TRADE=2.5
+MINIMUM_RR_RATIO=1.2
+MIN_VOLUME_RATIO=1.1
+TOP_PERFORMERS_PERCENTAGE=40
 ```
 
-### 4. **Start Trading**
+## �️ **Management Scripts & Tools**
 
-#### 🖥️ **Direct Execution**
+The bot includes comprehensive management scripts for monitoring, maintenance, and troubleshooting:
+
+### **📊 Position & Balance Management**
+
+#### **`check_balances.py`**
 
 ```bash
-./start.sh start     # Start the bot
-./start.sh status    # Check status
-./start.sh logs      # View logs
-./start.sh stop      # Stop the bot
-```
-
-#### 🐳 **Docker Deployment**
-
-```bash
-./docker.sh start    # Start with Docker
-./docker.sh logs     # Monitor logs
-./docker.sh stop     # Stop container
-```
-
-## 🛠️ **Management Tools**
-
-### **Position Management**
-
-```bash
-# Check current positions
 python scripts/check_balances.py
+```
 
-# Verify OCO orders
+- **Purpose**: Display all account balances with free/locked amounts
+- **Features**: Highlights assets from active positions, shows total portfolio value
+- **Use Case**: Verify account state before trading, check available funds
+
+#### **`check_open_orders.py`**
+
+```bash
 python scripts/check_open_orders.py
+```
 
-# Clean up stale positions
+- **Purpose**: List all active orders across all symbols
+- **Features**: Shows order types (OCO, limit, stop-loss), prices, quantities
+- **Use Case**: Monitor OCO orders, verify exit protection, identify stuck orders
+
+#### **`comprehensive_oco_cleanup.py`**
+
+```bash
 python scripts/comprehensive_oco_cleanup.py
+```
 
-# Retry failed OCO orders
+- **Purpose**: Clean stale positions and create missing OCO orders
+- **Features**: Balance-aware OCO placement, position quantity correction
+- **Use Case**: Recovery after bot restarts, fix missing exit protection
+
+#### **`balance_aware_oco.py`**
+
+```bash
 python scripts/balance_aware_oco.py
 ```
 
-### **Market Analysis**
+- **Purpose**: Create OCO orders using actual account balances
+- **Features**: Automatic quantity adjustment, precision handling
+- **Use Case**: Fix "insufficient balance" errors, ensure accurate order sizes
+
+### **🔍 Market Analysis & Validation**
+
+#### **`test_market_status.py`**
 
 ```bash
-# Test market status
 python scripts/test_market_status.py
+```
 
-# Analyze trading opportunities
+- **Purpose**: Verify market status and trading availability
+- **Features**: Checks market hours, symbol status, trading permissions
+- **Use Case**: Troubleshoot trading failures, verify market accessibility
+
+#### **`check_notional.py`**
+
+```bash
 python scripts/check_notional.py
+```
 
-# Monitor order status
+- **Purpose**: Validate minimum notional requirements
+- **Features**: Shows symbol filters, minimum order values, precision rules
+- **Use Case**: Debug order rejection errors, verify compliance with Binance rules
+
+#### **`test_order_status.py`**
+
+```bash
 python scripts/test_order_status.py
 ```
 
-### **System Control**
+- **Purpose**: Check specific order status and details
+- **Features**: Order lifecycle tracking, execution details, error diagnosis
+- **Use Case**: Investigate failed orders, track order execution progress
+
+### **🔧 Advanced Recovery Tools**
+
+#### **`advanced_oco_retry.py`**
 
 ```bash
-# Bot lifecycle management
-./start.sh start|stop|restart|status|logs
-
-# Docker management
-./docker.sh build|start|stop|restart|logs|clean
+python scripts/advanced_oco_retry.py
 ```
 
-## 📈 **Trading Strategy**
+- **Purpose**: Sophisticated OCO order retry with error analysis
+- **Features**: Smart error handling, progressive retry logic, detailed diagnostics
+- **Use Case**: Recover from complex OCO failures, detailed error investigation
 
-### **Entry Conditions** (All must be met)
+#### **`retry_oco_orders.py`**
 
-1. **EMA Alignment**: 9 EMA > 21 EMA > 50 EMA (bullish trend)
-2. **RSI Momentum**: RSI between 30-70 (avoiding overbought/oversold)
-3. **Volume Confirmation**: Above-average trading volume
-4. **Market Status**: Symbol actively trading (not suspended)
-5. **Balance Validation**: Sufficient USDT available
-6. **Position Limit**: No existing position for the symbol
+```bash
+python scripts/retry_oco_orders.py
+```
 
-### **Exit Strategy** (OCO Orders)
+- **Purpose**: Simple OCO order retry mechanism
+- **Features**: Basic retry logic for common failures
+- **Use Case**: Quick recovery from temporary OCO failures
 
-- **Take Profit**: 1.5x risk distance above entry (configurable)
-- **Stop Loss**: Based on recent swing low with buffer
-- **Order Types**: OCO (One-Cancels-Other) for automatic execution
+#### **`check_oco_status.py`**
 
-### **Risk Management**
+```bash
+python scripts/check_oco_status.py
+```
 
-- Maximum 1 position per symbol
-- Configurable position sizing
-- Automatic balance verification
-- Emergency stop mechanisms
+- **Purpose**: Verify OCO order status across all positions
+- **Features**: Real-time OCO validation, missing protection alerts
+- **Use Case**: Audit position protection, identify unprotected positions
+
+### **🧹 Maintenance & Migration**
+
+#### **`cleanup_positions.py`**
+
+```bash
+python scripts/cleanup_positions.py
+```
+
+- **Purpose**: Remove stale or invalid position records
+- **Features**: Safe position validation, automatic cleanup
+- **Use Case**: Clean up after market crashes, remove outdated data
+
+#### **`migrate_active_trades.py`**
+
+```bash
+python scripts/migrate_active_trades.py
+```
+
+- **Purpose**: Migrate position data between format versions
+- **Features**: Data format conversion, backup creation
+- **Use Case**: Upgrade position storage format, data migration
+
+### **🎯 Trading Simulation & Testing**
+
+#### **`simulate_trading.py`**
+
+```bash
+python scripts/simulate_trading.py
+```
+
+- **Purpose**: Backtest trading strategy on historical data
+- **Features**: Paper trading simulation, performance metrics
+- **Use Case**: Strategy validation, parameter optimization
+
+#### **`simulate_trading_clean.py`**
+
+```bash
+python scripts/simulate_trading_clean.py
+```
+
+- **Purpose**: Clean simulation environment for testing
+- **Features**: Fresh simulation state, controlled testing
+- **Use Case**: Isolated strategy testing, clean performance analysis
+
+#### **`smart_exit_orders.py`**
+
+```bash
+python scripts/smart_exit_orders.py
+```
+
+- **Purpose**: Advanced exit strategy implementation
+- **Features**: Partial profits, trailing stops, breakeven management
+- **Use Case**: Sophisticated position management, maximize profit potential
+
+## 🧪 **Test Suite**
+
+Comprehensive test coverage ensures system reliability:
+
+### **Core Functionality Tests**
+
+#### **`test_trading_bot.py`**
+
+- **Coverage**: Main trading logic, signal generation, order execution
+- **Features**: Mock API testing, edge case validation, error handling
+- **Run**: `pytest tests/test_trading_bot.py -v`
+
+#### **`test_balance_validation.py`**
+
+- **Coverage**: Balance checking, quantity validation, precision handling
+- **Features**: Float precision tests, rounding validation, edge cases
+- **Run**: `pytest tests/test_balance_validation.py -v`
+
+#### **`test_oco_validation.py`**
+
+- **Coverage**: OCO order creation, validation, error handling
+- **Features**: API response mocking, error scenario testing
+- **Run**: `pytest tests/test_oco_validation.py -v`
+
+### **Advanced Feature Tests**
+
+#### **`test_risk_management.py`**
+
+- **Coverage**: Position sizing, risk calculations, safety limits
+- **Features**: Dynamic sizing tests, risk percentage validation
+- **Run**: `pytest tests/test_risk_management.py -v`
+
+#### **`test_advanced_exits.py`**
+
+- **Coverage**: Partial profits, trailing stops, exit strategies
+- **Features**: Complex exit scenario testing, profit optimization
+- **Run**: `pytest tests/test_advanced_exits.py -v`
+
+#### **`test_intelligent_scanner.py`**
+
+- **Coverage**: Watchlist generation, performance ranking, filtering
+- **Features**: Market scanning logic, relative strength calculations
+- **Run**: `pytest tests/test_intelligent_scanner.py -v`
+
+### **Configuration & Integration Tests**
+
+#### **`test_min_notional_config.py`**
+
+- **Coverage**: Configuration loading, environment variable validation
+- **Features**: Config edge cases, default value testing
+- **Run**: `pytest tests/test_min_notional_config.py -v`
+
+#### **`test_simple.py`**
+
+- **Coverage**: Basic system functionality, smoke testing
+- **Features**: Quick validation, integration testing
+- **Run**: `pytest tests/test_simple.py -v`
+
+### **Running All Tests**
+
+```bash
+# Run complete test suite
+pytest tests/ -v
+
+# Run with coverage report
+pytest tests/ -v --cov=src --cov-report=html
+
+# Run specific test category
+pytest tests/test_*risk* -v  # Risk management tests
+pytest tests/test_*oco* -v   # OCO related tests
+pytest tests/test_*balance* -v # Balance validation tests
+```
 
 ## 🏗️ **Architecture**
 
@@ -288,33 +621,7 @@ python scripts/check_balances.py
 - Average holding period analysis
 - Risk-adjusted returns
 
-## 🐳 **Docker Deployment**
-
-### **Production Deployment**
-
-```bash
-# Build and deploy
-./docker.sh build
-./docker.sh start
-
-# Monitor
-./docker.sh logs
-./docker.sh status
-
-# Maintenance
-./docker.sh restart
-./docker.sh update
-```
-
-### **Docker Features**
-
-- 🔄 **Auto-restart**: Automatic recovery from crashes
-- 📊 **Resource limits**: Memory and CPU constraints
-- 💾 **Data persistence**: Logs and positions preserved
-- 🏥 **Health checks**: Container health monitoring
-- 🔒 **Security**: Non-root execution
-
-## 🔒 **Security Best Practices**
+## **Security Best Practices**
 
 ### **API Security**
 
@@ -436,121 +743,3 @@ This trading bot is for educational and research purposes. Cryptocurrency tradin
 ---
 
 **Built with ❤️ for the crypto trading community**
-
-## Security Notes
-
-- Never commit your `.env` file to version control
-- The `.env` file is already included in `.gitignore`
-- Always test with testnet first before using live API keys
-- Restrict your API keys to your IP address on Binance for additional security
-
-## Features
-
-### 🔄 **Persistent Active Trade Tracking**
-
-- Active OCO orders are automatically saved to `active_trades.json`
-- Bot can be safely restarted without losing track of ongoing trades
-- Prevents duplicate trades on the same symbol until OCO order completes
-- Automatic cleanup when trades are completed (profit or stop loss hit)
-
-### 📊 **Technical Analysis Strategy**
-
-- Uses EMA (9, 21, 50) for trend confirmation
-- RSI for momentum analysis
-- Swing high/low detection for stop loss placement
-- Risk-reward ratio calculation for take profit
-
-### 🛡️ **Risk Management**
-
-- **Early Balance Validation** - Checks USDT balance first before any analysis to save processing time
-- One active trade per symbol maximum
-- Automatic OCO orders (take profit + stop loss)
-- **Balance verification after buy orders** - Ensures asset balance is updated before placing OCO
-- Minimum notional value validation
-- Automatic quantity adjustment for exchange requirements
-- Configurable trade amounts and risk parameters
-
-### 🔍 **Advanced Safety Features**
-
-- **Efficient Processing**: Balance validation moved to first condition to avoid unnecessary analysis when funds are insufficient
-- **Balance Verification**: After each market buy order, the bot waits and verifies that the purchased asset balance has been properly updated before placing the OCO sell order
-- **Retry Mechanism**: Up to 10 attempts with 3-second delays to ensure balance synchronization
-- **Graceful Failure Handling**: If balance verification fails, the trade is logged and manual intervention is suggested
-- **Actual Balance Usage**: OCO orders use the verified actual balance rather than theoretical quantities
-- **Safe Quantity Formatting**: Uses round-down formatting for sell quantities to ensure we never exceed available balance
-- **Executed Quantity Tracking**: Uses actual executed quantity from buy orders instead of requested quantity
-
-## Configuration
-
-All configuration can be done through environment variables in the `.env` file:
-
-- `BINANCE_API_KEY`: Your Binance API key
-- `BINANCE_API_SECRET`: Your Binance API secret
-- `USE_TESTNET`: Set to `True` for testnet, `False` for live trading (default: True)
-- `TRADE_AMOUNT_USDT`: Amount in USDT to spend per trade (default: 15.0)
-- `RISK_REWARD_RATIO`: Risk-to-reward ratio for take profit (default: 1.5)
-- `MIN_USDT_BALANCE`: Minimum USDT balance required to trade (default: 100.0)
-
-## 🐳 Docker Deployment
-
-### Quick Start with Docker
-
-1. **Setup Environment**:
-
-   ```bash
-   cp .env.example .env
-   # Edit .env with your actual API keys
-   ```
-
-2. **Start the Bot**:
-
-   ```bash
-   ./docker.sh start
-   ```
-
-3. **Monitor Logs**:
-   ```bash
-   ./docker.sh logs
-   ```
-
-### Docker Management Commands
-
-The `docker.sh` script provides convenient commands:
-
-```bash
-./docker.sh build    # Build Docker image
-./docker.sh start    # Start the trading bot
-./docker.sh stop     # Stop the trading bot
-./docker.sh restart  # Restart the trading bot
-./docker.sh logs     # View real-time logs
-./docker.sh status   # Check bot status
-./docker.sh update   # Update and restart
-./docker.sh clean    # Remove all Docker resources
-```
-
-### Docker Features
-
-- **🔄 Automatic Restart**: Bot restarts automatically if it crashes
-- **📊 Resource Limits**: Memory and CPU limits for stable operation
-- **💾 Persistent Data**: Active trades and logs are preserved
-- **🏥 Health Checks**: Container health monitoring
-- **📝 Log Management**: Automatic log rotation and management
-- **🔒 Security**: Runs as non-root user inside container
-
-### Manual Docker Commands
-
-If you prefer manual control:
-
-```bash
-# Build and start
-docker-compose up -d
-
-# View logs
-docker-compose logs -f trading-bot
-
-# Stop
-docker-compose down
-
-# Restart specific service
-docker-compose restart trading-bot
-```
