@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for taking the time to fill out this bug report!
-        
+
         ⚠️ **Important**: This is an AI-generated trading bot (90%). Please ensure you've tested with testnet first.
 
   - type: textarea

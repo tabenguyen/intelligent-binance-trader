@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - Enhanced README with comprehensive documentation
 - Complete sequence diagrams for trading workflows
 - Security audit and API key protection
@@ -15,19 +16,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.0] - 2025-09-05
 
 ### Added
+
 - **🧠 Intelligent Trading Engine**
+
   - Multi-strategy analysis with EMA crossovers, RSI momentum
   - Smart signal generation with confluence requirements
   - Market status filtering for active trading pairs
   - Adaptive risk management with dynamic calculations
 
 - **🛡️ Enterprise-Grade Safety**
+
   - Balance-aware orders using actual account balances
   - OCO order protection for every position
   - Position persistence surviving bot restarts
   - Duplicate order prevention and validation
 
 - **🔧 Advanced Position Management**
+
   - Real-time balance synchronization
   - OCO order recovery and retry mechanisms
   - Position cleanup for stale entries
@@ -40,12 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Performance analytics and success tracking
 
 ### Changed
+
 - Migrated active trades storage from .txt to .json format
 - Enhanced error handling with detailed diagnostics
 - Improved balance validation with floating-point precision
 - Configurable minimum notional values
 
 ### Security
+
 - Removed exposed API keys from repository
 - Enhanced .gitignore patterns for sensitive data
 - Added comprehensive security audit procedures
@@ -53,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2025-08-31
 
 ### Added
+
 - Initial AI-generated trading bot implementation
 - Basic EMA crossover strategy
 - Binance API integration
@@ -61,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker deployment support
 
 ### Features
+
 - EMA (9, 21, 50) trend confirmation
 - RSI momentum analysis
 - Basic OCO order placement

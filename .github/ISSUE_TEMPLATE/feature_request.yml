@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for suggesting a new feature! 
-        
+
         🤖 This is an AI-generated project with human oversight. Your suggestions help improve the AI-human collaboration.
 
   - type: textarea

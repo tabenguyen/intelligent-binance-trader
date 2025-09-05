@@ -3,21 +3,25 @@
 ## 🚀 **What's New**
 
 ### ✨ **New Features**
+
 - [ ] Feature 1: Description of new functionality
 - [ ] Feature 2: Another new capability
 - [ ] Feature 3: Additional enhancement
 
 ### 🔧 **Improvements**
+
 - [ ] Enhancement 1: Performance improvement
 - [ ] Enhancement 2: User experience upgrade
 - [ ] Enhancement 3: Code quality improvement
 
 ### 🐛 **Bug Fixes**
+
 - [ ] Fix 1: Resolved issue description
 - [ ] Fix 2: Another bug resolution
 - [ ] Fix 3: Additional fix
 
 ### 🔒 **Security**
+
 - [ ] Security 1: Vulnerability fix
 - [ ] Security 2: Security enhancement
 
@@ -37,6 +41,7 @@
 ## 📦 **Installation & Upgrade**
 
 ### **New Installation:**
+
 ```bash
 git clone https://github.com/tabenguyen/trading-bot-ai.git
 cd trading-bot-ai
@@ -47,6 +52,7 @@ cp config/.env.example .env
 ```
 
 ### **Upgrade from Previous Version:**
+
 ```bash
 git pull origin main
 git checkout v{VERSION}
@@ -57,6 +63,7 @@ uv sync
 ## 🧪 **Testing**
 
 This release has been tested with:
+
 - [ ] Python 3.10, 3.11, 3.12
 - [ ] Binance Testnet
 - [ ] Various market conditions
@@ -65,12 +72,14 @@ This release has been tested with:
 ## 📋 **Configuration Changes**
 
 ### **New Environment Variables:**
+
 ```env
 NEW_VARIABLE_1=default_value  # Description
 NEW_VARIABLE_2=another_value  # Another description
 ```
 
 ### **Updated Variables:**
+
 - `EXISTING_VAR`: New default value (was: old_value)
 
 ## 🤝 **Contributors**
@@ -98,12 +107,15 @@ Special thanks to all contributors who made this release possible:
 ## ⚠️ **Important Notes**
 
 ### **AI-Generated Code Reminder**
+
 This project is 90% AI-generated with human oversight. Please:
+
 - Test thoroughly with testnet before live trading
 - Understand that trading involves substantial risk
 - Use appropriate position sizing and risk management
 
 ### **Support**
+
 - 🐛 **Bug Reports**: [GitHub Issues](https://github.com/tabenguyen/trading-bot-ai/issues)
 - 💬 **Questions**: [GitHub Discussions](https://github.com/tabenguyen/trading-bot-ai/discussions)
 - 📖 **Documentation**: [README.md](https://github.com/tabenguyen/trading-bot-ai/blob/main/README.md)
