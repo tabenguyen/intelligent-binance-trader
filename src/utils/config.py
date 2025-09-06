@@ -15,10 +15,15 @@ def load_config() -> TradingConfig:
     # Load from environment
     config = TradingConfig.from_env()
     
-    # Load watchlist
-    watchlist_path = Path(config.watchlist_file)
+    # Load watchlist from mode-specific file
+    watchlist_path = Path(config.get_mode_specific_watchlist_file())
     if watchlist_path.exists():
         config.symbols = load_watchlist(watchlist_path)
+    else:
+        # Fallback to generic watchlist if mode-specific doesn't exist
+        fallback_path = Path(config.watchlist_file)
+        if fallback_path.exists():
+            config.symbols = load_watchlist(fallback_path)
     
     # Add strategy configurations
     config.strategies = load_strategy_configs()

@@ -21,10 +21,11 @@ def main():
         # Load configuration
         config = load_config()
         
-        # Setup logging
+        # Setup logging with mode-specific log file
+        log_file = config.log_file or config.get_mode_specific_log_file()
         setup_logging(
             level=config.log_level,
-            log_file=config.log_file
+            log_file=log_file
         )
         
         # Create and start trading bot

@@ -143,7 +143,7 @@ def update_watchlist_from_top_movers(limit: int = 20) -> Optional[List[str]]:
 		top = watcher.get_top_movers(limit=limit)
 		if not top:
 			return None
-		watcher.write_watchlist(top, config.watchlist_file)
+		watcher.write_watchlist(top, config.get_mode_specific_watchlist_file())
 		return top
 	except Exception as e:
 		logging.getLogger(__name__).error(f"MarketWatcher update failed: {e}")

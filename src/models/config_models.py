@@ -72,6 +72,27 @@ class TradingConfig:
     watchlist_file: str = "config/watchlist.txt"
     active_trades_file: str = "data/active_trades.json"
     
+    def get_mode_specific_watchlist_file(self) -> str:
+        """Get watchlist file path based on trading mode."""
+        if self.testnet:
+            return "config/watchlist_testnet.txt"
+        else:
+            return "config/watchlist_live.txt"
+    
+    def get_mode_specific_active_trades_file(self) -> str:
+        """Get active trades file path based on trading mode."""
+        if self.testnet:
+            return "data/active_trades_testnet.json"
+        else:
+            return "data/active_trades_live.json"
+    
+    def get_mode_specific_log_file(self) -> str:
+        """Get log file path based on trading mode."""
+        if self.testnet:
+            return "logs/output_testnet.log"
+        else:
+            return "logs/output_live.log"
+    
     @classmethod
     def from_env(cls) -> 'TradingConfig':
         """Create configuration from environment variables."""

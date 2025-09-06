@@ -61,7 +61,7 @@ class TradingBot:
         self.risk_manager: IRiskManager = RiskManagementService(config)
         
         self.position_manager: IPositionManager = PositionManagementService(
-            config.active_trades_file
+            config.get_mode_specific_active_trades_file()
         )
         
         self.notification_service: INotificationService = LoggingNotificationService()
@@ -232,6 +232,18 @@ class TradingBot:
     def _read_watchlist_file(self) -> List[str]:
         """Read symbols from configured watchlist file."""
         try:
+            # Try mode-specific watchlist first
+            path = self.config.get_mode_specific_watchlist_file()
+            try:
+                with open(path, 'r') as f:
+                    lines = [ln.strip() for ln in f.readlines()]
+                symbols = [s for s in lines if s]
+                if symbols:
+                    return symbols
+            except FileNotFoundError:
+                pass
+            
+            # Fallback to generic watchlist
             path = self.config.watchlist_file
             with open(path, 'r') as f:
                 lines = [ln.strip() for ln in f.readlines()]
