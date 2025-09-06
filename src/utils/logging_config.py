@@ -21,7 +21,7 @@ def setup_logging(level: str = "INFO", log_file: Optional[str] = None) -> None:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Configure logging format with more detailed info for mode identification
+    # Configure logging format
     log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     
     # Configure handlers
@@ -45,12 +45,7 @@ def setup_logging(level: str = "INFO", log_file: Optional[str] = None) -> None:
     logger = logging.getLogger(__name__)
     logger.info(f"Logging configured - Level: {level}")
     if log_file:
-        # Determine mode from log file path
-        mode = "TESTNET" if "testnet" in log_file else "LIVE" if "live" in log_file else "UNKNOWN"
-        logger.info(f"Log file: {log_file} (Mode: {mode})")
-        logger.info(f"🔧 Trading mode: {mode}")
-    else:
-        logger.info("Console-only logging enabled")
+        logger.info(f"Log file: {log_file}")
 
 
 def get_logger(name: str) -> logging.Logger:

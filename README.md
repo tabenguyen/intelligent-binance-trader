@@ -141,41 +141,11 @@ cp config/.env.example .env
 # Edit .env with your Binance API credentials
 ```
 
-### 2. **Trading Mode Configuration**
-
-The bot automatically separates files and logs based on trading mode for safety:
-
-#### **🧪 Testnet Mode (Default & Recommended)**
-
-```bash
-export USE_TESTNET=true    # Safe testing environment
-```
-
-- Uses: `config/watchlist_testnet.txt`, `data/active_trades_testnet.json`, `logs/output_testnet.log`
-- Pre-configured with active symbols for testing
-
-#### **💰 Live Mode** (⚠️ **Real Money - Use with Caution!** ⚠️)
-
-```bash
-export USE_TESTNET=false   # Live trading with real funds
-```
-
-- Uses: `config/watchlist_live.txt`, `data/active_trades_live.json`, `logs/output_live.log`
-- Pre-configured with conservative, major cryptocurrencies
-
-#### **Check Current Mode**
-
-```bash
-uv run python scripts/mode_manager.py status
-```
-
-📖 **See [Mode Separation Documentation](docs/mode_separation.md)** for complete details.
-
-### 3. **API Configuration**
+### 2. **API Configuration**
 
 Edit `.env` file with your Binance API credentials. See the complete configuration table below for all available options.
 
-### 4. **Automatic Watchlist Generation**
+### 3. **Automatic Watchlist Generation**
 
 The bot automatically generates and maintains its watchlist by:
 
@@ -186,7 +156,7 @@ The bot automatically generates and maintains its watchlist by:
 
 > **No manual watchlist management required!** The system intelligently finds the best trading opportunities.
 
-### 5. **Start Trading with Process Protection**
+### 4. **Start Trading with Process Protection**
 
 #### 🖥️ **Using start.sh Script (Recommended)**
 
