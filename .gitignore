@@ -36,3 +36,5 @@ Thumbs.db
 **/*.log
 *.pid
 
+# Config
+config/watchlist*
