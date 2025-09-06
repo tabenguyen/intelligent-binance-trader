@@ -64,6 +64,18 @@ class PositionManagementService(IPositionManager):
         except Exception as e:
             self.logger.error(f"Error updating position data for {symbol}: {e}")
     
+    def update_position_oco_id(self, symbol: str, oco_order_id: str) -> None:
+        """Update OCO order ID for a position."""
+        try:
+            if symbol in self.positions:
+                self.positions[symbol].oco_order_id = oco_order_id
+                self._save_positions()
+                self.logger.info(f"Updated OCO order ID for {symbol}: {oco_order_id}")
+            else:
+                self.logger.warning(f"Position {symbol} not found for OCO ID update")
+        except Exception as e:
+            self.logger.error(f"Error updating OCO ID for {symbol}: {e}")
+    
     def close_position(self, symbol: str, exit_price: float) -> Trade:
         """Close a position and return the completed trade."""
         try:

@@ -19,8 +19,9 @@ def main():
     # Load configuration
     config = TradingConfig.from_env()
     
-    # Initialize services
-    position_manager = PositionManagementService(config.active_trades_file)
+    # Initialize services with mode-specific file
+    active_trades_file = config.get_mode_specific_active_trades_file()
+    position_manager = PositionManagementService(active_trades_file)
     trade_executor = BinanceTradeExecutor(
         api_key=config.api_key,
         api_secret=config.api_secret,
@@ -45,27 +46,19 @@ def main():
             print(f"   OCO Order ID: {position.oco_order_id}")
             
             try:
-                order_status = trade_executor.get_order_status(position.symbol, position.oco_order_id)
+                order_status = trade_executor.get_oco_order_status(position.symbol, position.oco_order_id)
                 print(f"   OCO Status: {order_status}")
                 
-                if order_status == "CANCELED":
-                    print(f"   ⚠️  OCO order was cancelled - position has no exit protection!")
-                    
-                    response = input(f"   Remove {position.symbol} position? (y/N): ")
-                    if response.lower() == 'y':
-                        trade = position_manager.close_position(position.symbol, position.current_price)
-                        print(f"   ✅ Position removed: P&L ${trade.pnl:.2f}")
-                    else:
-                        print(f"   ⏭️  Keeping position")
-                        
-                elif order_status in ["FILLED", "PARTIALLY_FILLED"]:
-                    print(f"   ✅ OCO order was executed - removing position record")
-                    trade = position_manager.close_position(position.symbol, position.current_price)
-                    print(f"   ✅ Position cleaned up: P&L ${trade.pnl:.2f}")
-                    
-                elif order_status in ["NEW", "PARTIALLY_FILLED"]:
-                    print(f"   ✅ OCO order is still active")
-                    
+                if order_status == "ALL_DONE":
+                    print(f"   ✅ OCO order completed - removing from active trades")
+                    position_manager.remove_position(position.symbol)
+                elif order_status == "REJECT":
+                    print(f"   ❌ OCO order rejected - removing from active trades")
+                    position_manager.remove_position(position.symbol)
+                elif order_status in ["EXECUTING", "EXEC_STARTED"]:
+                    print(f"   🔄 OCO order is active and executing")
+                else:
+                    print(f"   ⚠️  Unknown OCO status: {order_status}")
             except Exception as e:
                 print(f"   ❌ Error checking OCO status: {e}")
         else:
