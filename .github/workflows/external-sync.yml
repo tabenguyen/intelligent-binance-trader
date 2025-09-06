@@ -1,0 +1,334 @@
+name: External Project Sync
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled]
+  pull_request:
+    types: [opened, edited, closed, reopened, merged]
+  workflow_dispatch:
+    inputs:
+      sync_type:
+        description: "Type of sync to perform"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - issues_only
+          - milestones_only
+
+jobs:
+  export-project-data:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Export project data
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+
+            console.log('📊 Exporting project data for external sync...');
+
+            // Export issues
+            if (context.payload.inputs.sync_type === 'full' || context.payload.inputs.sync_type === 'issues_only') {
+              console.log('Exporting issues...');
+              
+              const issues = await github.paginate(github.rest.issues.listForRepo, {
+                owner,
+                repo,
+                state: 'all',
+                per_page: 100
+              });
+              
+              const exportData = {
+                export_date: new Date().toISOString(),
+                repository: `${owner}/${repo}`,
+                total_issues: issues.length,
+                issues: issues.map(issue => ({
+                  number: issue.number,
+                  title: issue.title,
+                  state: issue.state,
+                  labels: issue.labels.map(label => label.name),
+                  assignees: issue.assignees.map(assignee => assignee.login),
+                  milestone: issue.milestone ? issue.milestone.title : null,
+                  created_at: issue.created_at,
+                  updated_at: issue.updated_at,
+                  closed_at: issue.closed_at,
+                  html_url: issue.html_url,
+                  body: issue.body
+                }))
+              };
+              
+              // Save to artifact
+              fs.writeFileSync('issues_export.json', JSON.stringify(exportData, null, 2));
+              console.log(`✅ Exported ${issues.length} issues`);
+            }
+
+            // Export milestones
+            if (context.payload.inputs.sync_type === 'full' || context.payload.inputs.sync_type === 'milestones_only') {
+              console.log('Exporting milestones...');
+              
+              const milestones = await github.rest.issues.listMilestones({
+                owner,
+                repo,
+                state: 'all'
+              });
+              
+              const milestoneData = {
+                export_date: new Date().toISOString(),
+                repository: `${owner}/${repo}`,
+                total_milestones: milestones.data.length,
+                milestones: milestones.data.map(milestone => ({
+                  number: milestone.number,
+                  title: milestone.title,
+                  description: milestone.description,
+                  state: milestone.state,
+                  open_issues: milestone.open_issues,
+                  closed_issues: milestone.closed_issues,
+                  due_on: milestone.due_on,
+                  created_at: milestone.created_at,
+                  updated_at: milestone.updated_at,
+                  html_url: milestone.html_url
+                }))
+              };
+              
+              fs.writeFileSync('milestones_export.json', JSON.stringify(milestoneData, null, 2));
+              console.log(`✅ Exported ${milestones.data.length} milestones`);
+            }
+
+      - name: Upload project data
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-export-${{ github.run_number }}
+          path: |
+            issues_export.json
+            milestones_export.json
+          retention-days: 30
+
+  notify-external-systems:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' || github.event_name == 'pull_request'
+
+    steps:
+      - name: Notify external project management tools
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This job can be extended to integrate with external tools like:
+            // - Jira
+            // - Trello
+            // - Azure DevOps
+            // - Monday.com
+            // - Slack notifications
+            // - Email notifications
+
+            const { owner, repo } = context.repo;
+            const eventType = context.eventName;
+
+            let notification = {
+              repository: `${owner}/${repo}`,
+              event: eventType,
+              timestamp: new Date().toISOString()
+            };
+
+            if (eventType === 'issues') {
+              const issue = context.payload.issue;
+              notification = {
+                ...notification,
+                type: 'issue',
+                action: context.payload.action,
+                issue: {
+                  number: issue.number,
+                  title: issue.title,
+                  state: issue.state,
+                  labels: issue.labels.map(label => label.name),
+                  assignees: issue.assignees.map(assignee => assignee.login),
+                  milestone: issue.milestone ? issue.milestone.title : null,
+                  html_url: issue.html_url
+                }
+              };
+            } else if (eventType === 'pull_request') {
+              const pr = context.payload.pull_request;
+              notification = {
+                ...notification,
+                type: 'pull_request',
+                action: context.payload.action,
+                pull_request: {
+                  number: pr.number,
+                  title: pr.title,
+                  state: pr.state,
+                  merged: pr.merged,
+                  html_url: pr.html_url,
+                  head_ref: pr.head.ref,
+                  base_ref: pr.base.ref
+                }
+              };
+            }
+
+            console.log('📤 Notification payload:', JSON.stringify(notification, null, 2));
+
+            // Example: Send to webhook endpoint
+            // if (process.env.EXTERNAL_WEBHOOK_URL) {
+            //   const response = await fetch(process.env.EXTERNAL_WEBHOOK_URL, {
+            //     method: 'POST',
+            //     headers: {
+            //       'Content-Type': 'application/json',
+            //       'Authorization': `Bearer ${process.env.EXTERNAL_API_TOKEN}`
+            //     },
+            //     body: JSON.stringify(notification)
+            //   });
+            //   
+            //   if (response.ok) {
+            //     console.log('✅ Successfully notified external system');
+            //   } else {
+            //     console.log('❌ Failed to notify external system:', response.status);
+            //   }
+            // }
+
+  generate-project-metrics:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Generate project health metrics
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            console.log('📈 Generating project health metrics...');
+
+            // Get all issues
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'all',
+              per_page: 100
+            });
+
+            // Get milestones
+            const milestones = await github.rest.issues.listMilestones({
+              owner,
+              repo,
+              state: 'all'
+            });
+
+            // Calculate metrics
+            const totalIssues = issues.length;
+            const openIssues = issues.filter(issue => issue.state === 'open').length;
+            const closedIssues = issues.filter(issue => issue.state === 'closed').length;
+
+            // Label distribution
+            const labelCounts = {};
+            issues.forEach(issue => {
+              issue.labels.forEach(label => {
+                labelCounts[label.name] = (labelCounts[label.name] || 0) + 1;
+              });
+            });
+
+            // Priority distribution
+            const priorities = Object.keys(labelCounts)
+              .filter(label => label.startsWith('priority/'))
+              .reduce((acc, label) => {
+                acc[label] = labelCounts[label];
+                return acc;
+              }, {});
+
+            // Component distribution  
+            const components = Object.keys(labelCounts)
+              .filter(label => label.startsWith('component/'))
+              .reduce((acc, label) => {
+                acc[label] = labelCounts[label];
+                return acc;
+              }, {});
+
+            // Milestone progress
+            const milestoneMetrics = milestones.data.map(milestone => ({
+              title: milestone.title,
+              open_issues: milestone.open_issues,
+              closed_issues: milestone.closed_issues,
+              progress: milestone.open_issues + milestone.closed_issues > 0 
+                ? Math.round((milestone.closed_issues / (milestone.open_issues + milestone.closed_issues)) * 100)
+                : 0,
+              due_date: milestone.due_on,
+              state: milestone.state
+            }));
+
+            // Issue aging (days since creation for open issues)
+            const now = new Date();
+            const openIssueAges = issues
+              .filter(issue => issue.state === 'open')
+              .map(issue => {
+                const created = new Date(issue.created_at);
+                const ageInDays = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+                return ageInDays;
+              });
+
+            const avgIssueAge = openIssueAges.length > 0 
+              ? Math.round(openIssueAges.reduce((sum, age) => sum + age, 0) / openIssueAges.length)
+              : 0;
+
+            const metrics = {
+              generated_at: new Date().toISOString(),
+              repository: `${owner}/${repo}`,
+              issue_summary: {
+                total: totalIssues,
+                open: openIssues,
+                closed: closedIssues,
+                completion_rate: totalIssues > 0 ? Math.round((closedIssues / totalIssues) * 100) : 0
+              },
+              priority_distribution: priorities,
+              component_distribution: components,
+              milestone_progress: milestoneMetrics,
+              issue_aging: {
+                average_age_days: avgIssueAge,
+                oldest_issue_days: openIssueAges.length > 0 ? Math.max(...openIssueAges) : 0,
+                stale_issues: openIssueAges.filter(age => age > 30).length
+              },
+              health_indicators: {
+                milestone_on_track: milestoneMetrics.filter(m => m.progress >= 75 || m.state === 'closed').length,
+                critical_issues: labelCounts['priority/critical'] || 0,
+                blocked_issues: labelCounts['status/blocked'] || 0,
+                needs_testing: labelCounts['status/needs-testing'] || 0
+              }
+            };
+
+            console.log('📊 Project Health Metrics:');
+            console.log(JSON.stringify(metrics, null, 2));
+
+            // Create issue comment with metrics summary
+            const metricsComment = `
+            ## 📊 Project Health Report
+
+            **Generated:** ${new Date().toLocaleDateString()}
+
+            ### Issue Summary
+            - **Total Issues:** ${metrics.issue_summary.total}
+            - **Open:** ${metrics.issue_summary.open}
+            - **Closed:** ${metrics.issue_summary.closed}
+            - **Completion Rate:** ${metrics.issue_summary.completion_rate}%
+
+            ### Health Indicators
+            - **Critical Issues:** ${metrics.health_indicators.critical_issues}
+            - **Blocked Issues:** ${metrics.health_indicators.blocked_issues}
+            - **Issues Needing Testing:** ${metrics.health_indicators.needs_testing}
+            - **Average Issue Age:** ${metrics.issue_aging.average_age_days} days
+            - **Stale Issues (>30 days):** ${metrics.issue_aging.stale_issues}
+
+            ### Milestone Progress
+            ${milestoneMetrics.map(m => `- **${m.title}:** ${m.progress}% complete (${m.closed_issues}/${m.open_issues + m.closed_issues})`).join('\n')}
+
+            ---
+            *This report is automatically generated. For detailed metrics, check the workflow run artifacts.*
+            `;
+
+            // You could create an issue with this report or post it as a comment
+            // depending on your workflow needs
+
+            return metrics;

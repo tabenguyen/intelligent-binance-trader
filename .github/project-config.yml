@@ -1,0 +1,163 @@
+# GitHub Project Configuration for Trading Bot AI
+# This file defines the project structure and automation rules
+
+name: "Trading Bot AI - Development Board"
+description: "Comprehensive project management for trading bot development, deployment, and maintenance"
+
+# Project Views Configuration
+views:
+  - name: "Sprint Planning"
+    type: "table"
+    fields:
+      - "Title"
+      - "Assignees"
+      - "Status"
+      - "Priority"
+      - "Labels"
+      - "Milestone"
+      - "Story Points"
+    filters:
+      - field: "Status"
+        values: ["Todo", "In Progress", "In Review"]
+
+  - name: "Bug Triage"
+    type: "table"
+    fields:
+      - "Title"
+      - "Assignees"
+      - "Status"
+      - "Priority"
+      - "Labels"
+      - "Created"
+    filters:
+      - field: "Labels"
+        values: ["bug", "critical", "high-priority"]
+
+  - name: "Feature Roadmap"
+    type: "board"
+    group_by: "Status"
+    filters:
+      - field: "Labels"
+        values: ["enhancement", "feature", "strategy"]
+
+  - name: "Technical Debt"
+    type: "table"
+    fields:
+      - "Title"
+      - "Status"
+      - "Priority"
+      - "Technical Complexity"
+      - "Effort"
+    filters:
+      - field: "Labels"
+        values: ["technical-debt", "refactor", "performance"]
+
+# Automation Rules
+automation:
+  # Auto-assign to project when labeled
+  - trigger: "issue_labeled"
+    conditions:
+      - label: ["bug", "enhancement", "feature", "strategy", "technical-debt"]
+    actions:
+      - add_to_project: true
+      - set_status: "Todo"
+
+  # Move to "In Progress" when assigned
+  - trigger: "issue_assigned"
+    actions:
+      - set_status: "In Progress"
+
+  # Move to "In Review" when PR is opened
+  - trigger: "pull_request_opened"
+    conditions:
+      - linked_issue_exists: true
+    actions:
+      - set_status: "In Review"
+
+  # Move to "Done" when PR is merged
+  - trigger: "pull_request_merged"
+    conditions:
+      - linked_issue_exists: true
+    actions:
+      - set_status: "Done"
+      - close_issue: true
+
+# Custom Fields Definition
+custom_fields:
+  - name: "Story Points"
+    type: "single_select"
+    options: ["1", "2", "3", "5", "8", "13", "21"]
+
+  - name: "Technical Complexity"
+    type: "single_select"
+    options: ["Low", "Medium", "High", "Expert"]
+
+  - name: "Business Value"
+    type: "single_select"
+    options: ["Low", "Medium", "High", "Critical"]
+
+  - name: "Risk Level"
+    type: "single_select"
+    options: ["Low", "Medium", "High", "Critical"]
+
+  - name: "Testing Required"
+    type: "single_select"
+    options: ["Unit", "Integration", "E2E", "Manual", "All"]
+
+# Milestones Configuration
+milestones:
+  - name: "Q4 2025 - Core Features"
+    description: "Essential trading bot functionality and stability"
+    due_date: "2025-12-31"
+
+  - name: "Q1 2026 - Advanced Strategies"
+    description: "Advanced trading strategies and AI integration"
+    due_date: "2026-03-31"
+
+  - name: "Q2 2026 - Production Ready"
+    description: "Production deployment and monitoring"
+    due_date: "2026-06-30"
+
+# Labels Configuration (already created via GitHub Actions)
+labels:
+  priority:
+    - name: "priority/critical"
+      color: "d73a4a"
+      description: "Highest priority, immediate attention required"
+    - name: "priority/high"
+      color: "ff6b35"
+      description: "High priority, should be addressed soon"
+    - name: "priority/medium"
+      color: "fbca04"
+      description: "Medium priority, normal timeline"
+    - name: "priority/low"
+      color: "0e8a16"
+      description: "Low priority, can be deferred"
+
+  type:
+    - name: "type/bug"
+      color: "d73a4a"
+      description: "Something isn't working"
+    - name: "type/feature"
+      color: "a2eeef"
+      description: "New feature or request"
+    - name: "type/enhancement"
+      color: "84b6eb"
+      description: "Enhancement to existing feature"
+    - name: "type/documentation"
+      color: "0075ca"
+      description: "Improvements or additions to documentation"
+
+  component:
+    - name: "component/strategy"
+      color: "5319e7"
+      description: "Trading strategy related"
+    - name: "component/execution"
+      color: "b60205"
+      description: "Trade execution engine"
+    - name: "component/risk"
+      color: "ff6b35"
+      description: "Risk management system"
+    - name: "component/data"
+      color: "0e8a16"
+      description: "Market data and analysis"
