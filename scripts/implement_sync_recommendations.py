@@ -306,6 +306,8 @@ def sync_active_trades():
             new_trades[symbol] = current_trades[symbol].copy()
             new_trades[symbol]['quantity'] = quantity  # Update quantity
             new_trades[symbol]['current_price'] = current_price  # Update current price
+            # Preserve existing OCO order ID and other important fields
+            # (entry_price, entry_time, stop_loss, take_profit, trailing_stop, oco_order_id are preserved)
         else:
             print(f"   🆕 Creating new trade record")
             

@@ -42,7 +42,8 @@ class TradeExecutionService(ITradeExecutor):
         try:
             # Convert string order_list_id to int for API call
             order_list_id_int = int(order_list_id) if isinstance(order_list_id, str) else order_list_id
-            oco_order = self.client.get_oco_order(symbol=symbol, orderListId=order_list_id_int)
+            # Note: For OCO orders, we only need orderListId, not symbol
+            oco_order = self.client.get_oco_order(orderListId=order_list_id_int)
             return oco_order.get('listOrderStatus')
         except ClientError as e:
             self.logger.warning(f"Could not get status for OCO order {order_list_id} on {symbol}: {e}")
@@ -394,6 +395,21 @@ class BinanceTradeExecutor(ITradeExecutor):
             return None
         except ValueError as e:
             self.logger.warning(f"Invalid order ID format {order_id}: {e}")
+            return None
+
+    def get_oco_order_status(self, symbol: str, order_list_id: str) -> Optional[str]:
+        """Get OCO order status from the exchange."""
+        try:
+            # Convert string order_list_id to int for API call
+            order_list_id_int = int(order_list_id) if isinstance(order_list_id, str) else order_list_id
+            # Note: For OCO orders, we only need orderListId, not symbol
+            oco_order = self.client.get_oco_order(orderListId=order_list_id_int)
+            return oco_order.get('listOrderStatus')
+        except ClientError as e:
+            self.logger.warning(f"Could not get status for OCO order {order_list_id} on {symbol}: {e}")
+            return None
+        except ValueError as e:
+            self.logger.warning(f"Invalid OCO order ID format {order_list_id}: {e}")
             return None
 
     def get_order_details(self, symbol: str, order_id: str) -> Optional[dict]:
