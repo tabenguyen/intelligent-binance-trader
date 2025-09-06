@@ -620,7 +620,7 @@ class TradingBot:
             # Check OCO order status (for positions with tracked OCO order IDs)
             if position.oco_order_id:
                 try:
-                    order_status = self.trade_executor.get_order_status(position.symbol, position.oco_order_id)
+                    order_status = self.trade_executor.get_oco_order_status(position.symbol, position.oco_order_id)
                     
                     if order_status == "CANCELED":
                         self.logger.warning(f"⚠️  OCO order {position.oco_order_id} for {position.symbol} was cancelled externally")

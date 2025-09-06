@@ -10,7 +10,46 @@ from binance.spot import Spot as Client
 from binance.error import ClientError
 
 from ..core.interfaces import ITradeExecutor
-from ..models import OrderResult
+from ..models.trade_models import OrderResult
+
+
+class TradeExecutionService(ITradeExecutor):
+    """
+    Trade execution service for Binance.
+    Handles all trading operations including market/limit orders and OCO orders.
+    """
+
+    def __init__(self, client: Client):
+        self.client = client
+        self.logger = logging.getLogger(__name__)
+
+    def get_order_status(self, symbol: str, order_id: str) -> Optional[str]:
+        """Get order status from the exchange."""
+        try:
+            # Convert string order_id to int for API call
+            order_id_int = int(order_id) if isinstance(order_id, str) else order_id
+            order = self.client.get_order(symbol=symbol, orderId=order_id_int)
+            return order.get('status')
+        except ClientError as e:
+            self.logger.warning(f"Could not get status for order {order_id} on {symbol}: {e}")
+            return None
+        except ValueError as e:
+            self.logger.warning(f"Invalid order ID format {order_id}: {e}")
+            return None
+
+    def get_oco_order_status(self, symbol: str, order_list_id: str) -> Optional[str]:
+        """Get OCO order status from the exchange."""
+        try:
+            # Convert string order_list_id to int for API call
+            order_list_id_int = int(order_list_id) if isinstance(order_list_id, str) else order_list_id
+            oco_order = self.client.get_oco_order(symbol=symbol, orderListId=order_list_id_int)
+            return oco_order.get('listOrderStatus')
+        except ClientError as e:
+            self.logger.warning(f"Could not get status for OCO order {order_list_id} on {symbol}: {e}")
+            return None
+        except ValueError as e:
+            self.logger.warning(f"Invalid OCO order ID format {order_list_id}: {e}")
+            return None
 
 
 class BinanceTradeExecutor(ITradeExecutor):
@@ -207,6 +246,16 @@ class BinanceTradeExecutor(ITradeExecutor):
                     self.logger.error(f"   Available: {available_balance} {base_asset}")
                     self.logger.error(f"   Required: {required_balance} {base_asset} (rounded: {rounded_quantity}, tolerance: {tolerance})")
                     self.logger.error(f"   Shortfall: {deficit} {base_asset}")
+                    raise ClientError(400, -2010, f"Insufficient {base_asset} balance", {})
+                
+                # Adjust quantity if very close to available balance to avoid precision issues
+                if quantity > available_balance and available_balance >= required_balance:
+                    original_quantity = quantity
+                    quantity = available_balance
+                    self.logger.warning(f"⚠️  Adjusting OCO quantity for precision:")
+                    self.logger.warning(f"   Original: {original_quantity}")
+                    self.logger.warning(f"   Adjusted: {quantity}")
+                    self.logger.warning(f"   Reason: Available balance slightly less than requested")
                     
             except Exception as balance_check_error:
                 self.logger.warning(f"⚠️  Could not pre-verify balance: {balance_check_error}")
@@ -236,7 +285,7 @@ class BinanceTradeExecutor(ITradeExecutor):
             self.logger.error(f"   Error Code: {error_code}")
             self.logger.error(f"   Error Message: {error_msg}")
             
-            # Specific error code analysis
+            # Specific error code analysis and retry logic
             if error_code == -2010:
                 self.logger.error(f"🔍 INSUFFICIENT BALANCE ANALYSIS:")
                 self.logger.error(f"   This indicates the account doesn't have enough {symbol.replace('USDT', '')} to sell")
@@ -244,6 +293,55 @@ class BinanceTradeExecutor(ITradeExecutor):
                 self.logger.error(f"   • Asset balance not yet updated after recent buy order")
                 self.logger.error(f"   • Asset already locked in other orders")
                 self.logger.error(f"   • Rounding/precision issues with quantity")
+                
+                # Attempt automatic retry with fresh balance check
+                self.logger.warning(f"🔄 Attempting automatic recovery for {symbol}...")
+                try:
+                    import time
+                    time.sleep(2)  # Wait for balance to update
+                    
+                    # Get fresh account balance
+                    account_info = self.client.account()
+                    base_asset = symbol.replace('USDT', '').replace('BUSD', '').replace('BTC', '').replace('ETH', '')
+                    fresh_balance = 0.0
+                    
+                    for balance in account_info['balances']:
+                        if balance['asset'] == base_asset:
+                            fresh_balance = float(balance['free'])
+                            break
+                    
+                    if fresh_balance > 0:
+                        # Adjust quantity to available balance with small buffer
+                        buffer = max(0.001, fresh_balance * 0.001)  # 0.1% buffer
+                        retry_quantity = fresh_balance - buffer
+                        retry_quantity = self._round_quantity(symbol, retry_quantity)
+                        
+                        if retry_quantity > 0:
+                            self.logger.warning(f"🔄 Retrying OCO with adjusted quantity:")
+                            self.logger.warning(f"   Fresh Balance: {fresh_balance}")
+                            self.logger.warning(f"   Retry Quantity: {retry_quantity}")
+                            
+                            # Retry the OCO order with adjusted quantity
+                            response = self.client.new_oco_order(
+                                symbol=symbol,
+                                side="SELL",
+                                quantity=retry_quantity,
+                                price=limit_price,
+                                stopPrice=stop_price,
+                                stopLimitPrice=stop_price,
+                                stopLimitTimeInForce="GTC"
+                            )
+                            
+                            self.logger.info(f"✅ OCO order retry successful!")
+                            return self._parse_oco_response(response)
+                        else:
+                            self.logger.error(f"❌ Retry quantity too small: {retry_quantity}")
+                    else:
+                        self.logger.error(f"❌ No balance available for retry: {fresh_balance}")
+                        
+                except Exception as retry_error:
+                    self.logger.error(f"❌ OCO retry failed: {retry_error}")
+                
                 self.logger.error(f"   💡 SUGGESTED ACTIONS:")
                 self.logger.error(f"   • Wait a few seconds and retry")
                 self.logger.error(f"   • Check account balance manually")
