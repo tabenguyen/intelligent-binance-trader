@@ -188,199 +188,173 @@ class BinanceTradeExecutor(ITradeExecutor):
     
     def execute_oco_order(self, symbol: str, quantity: float, 
                          stop_price: float, limit_price: float) -> OrderResult:
-        """Execute an OCO (One-Cancels-Other) order."""
-        try:
-            # Log initial OCO order parameters
-            self.logger.info(f"🔧 OCO Order Request for {symbol}:")
-            self.logger.info(f"   Raw Quantity: {quantity}")
-            self.logger.info(f"   Raw Stop Price: ${stop_price:.8f}")
-            self.logger.info(f"   Raw Limit Price: ${limit_price:.8f}")
-            
-            # Round values to appropriate precision
-            original_quantity = quantity
-            quantity = self._round_quantity(symbol, quantity)
-            if quantity <= 0:
-                self.logger.error(f"❌ Quantity adjustment failed: {original_quantity} → {quantity} (below minimum)")
-                raise ClientError(400, -1013, "Quantity too small after LOT_SIZE adjustment", {})
-            
-            original_stop = stop_price
-            original_limit = limit_price
-            stop_price = self._round_price(symbol, stop_price)
-            limit_price = self._round_price(symbol, limit_price)
-            
-            # Log formatted values
-            self.logger.info(f"🔧 OCO Order Formatted for {symbol}:")
-            self.logger.info(f"   Quantity: {original_quantity} → {quantity}")
-            self.logger.info(f"   Stop Price: ${original_stop:.8f} → ${stop_price:.8f}")
-            self.logger.info(f"   Limit Price: ${original_limit:.8f} → ${limit_price:.8f}")
-            
-            # Check account balance before placing order
+        """Execute an OCO (One-Cancels-Other) order with retry logic for insufficient balance."""
+        import time
+        
+        # Log initial OCO order parameters
+        self.logger.info(f"🔧 OCO Order Request for {symbol}:")
+        self.logger.info(f"   Raw Quantity: {quantity}")
+        self.logger.info(f"   Raw Stop Price: ${stop_price:.8f}")
+        self.logger.info(f"   Raw Limit Price: ${limit_price:.8f}")
+        
+        # Round prices to appropriate precision (do this once)
+        stop_price = self._round_price(symbol, stop_price)
+        limit_price = self._round_price(symbol, limit_price)
+        base_asset = symbol.replace('USDT', '').replace('BUSD', '').replace('BTC', '').replace('ETH', '')
+        
+        max_retries = 5
+        current_balance = 0.0  # This will be reused across retries
+        
+        for attempt in range(1, max_retries + 1):
             try:
-                # Apply the same rounding and tolerance logic as in trading bot
-                rounded_quantity = self._round_quantity(symbol, quantity)
-                tolerance = max(0.001, rounded_quantity * 0.001)  # 0.1% tolerance
-                required_balance = rounded_quantity - tolerance
+                self.logger.info(f"🔄 OCO Order Attempt {attempt}/{max_retries} for {symbol}")
                 
+                # Recalculate balance before each attempt
                 account_info = self.client.account()
-                base_asset = symbol.replace('USDT', '').replace('BUSD', '').replace('BTC', '').replace('ETH', '')
                 available_balance = 0.0
+                locked_balance = 0.0
                 
                 for balance in account_info['balances']:
                     if balance['asset'] == base_asset:
                         available_balance = float(balance['free'])
                         locked_balance = float(balance['locked'])
-                        
-                        self.logger.info(f"💰 {base_asset} Balance Check:")
-                        self.logger.info(f"   Available: {available_balance}")
-                        self.logger.info(f"   Locked: {locked_balance}")
-                        self.logger.info(f"   Requested: {quantity} (original)")
-                        self.logger.info(f"   Rounded: {rounded_quantity}")
-                        self.logger.info(f"   Tolerance: {tolerance}")
-                        self.logger.info(f"   Required: {required_balance}")
-                        self.logger.info(f"   Sufficient: {'✅ Yes' if available_balance >= required_balance else '❌ No'}")
                         break
                 
-                if available_balance < required_balance:
-                    deficit = required_balance - available_balance
-                    self.logger.error(f"❌ Insufficient balance detected BEFORE API call:")
-                    self.logger.error(f"   Available: {available_balance} {base_asset}")
-                    self.logger.error(f"   Required: {required_balance} {base_asset} (rounded: {rounded_quantity}, tolerance: {tolerance})")
-                    self.logger.error(f"   Shortfall: {deficit} {base_asset}")
-                    raise ClientError(400, -2010, f"Insufficient {base_asset} balance", {})
+                # Update current balance for reuse
+                current_balance = available_balance
                 
-                # Adjust quantity if very close to available balance to avoid precision issues
-                if quantity > available_balance and available_balance >= required_balance:
-                    original_quantity = quantity
-                    quantity = available_balance
-                    self.logger.warning(f"⚠️  Adjusting OCO quantity for precision:")
-                    self.logger.warning(f"   Original: {original_quantity}")
-                    self.logger.warning(f"   Adjusted: {quantity}")
-                    self.logger.warning(f"   Reason: Available balance slightly less than requested")
-                    
-            except Exception as balance_check_error:
-                self.logger.warning(f"⚠️  Could not pre-verify balance: {balance_check_error}")
-            
-            # Log final OCO order parameters before API call
-            self.logger.info(f"🚀 Executing OCO order via API...")
-            
-            response = self.client.new_oco_order(
-                symbol=symbol,
-                side="SELL",
-                quantity=quantity,
-                price=limit_price,
-                stopPrice=stop_price,
-                stopLimitPrice=stop_price,
-                stopLimitTimeInForce="GTC"
-            )
-            
-            self.logger.info(f"✅ OCO order API response received successfully")
-            return self._parse_oco_response(response)
-            
-        except ClientError as e:
-            # Enhanced error logging with detailed diagnostics
-            error_code = e.error_code if hasattr(e, 'error_code') else 'Unknown'
-            error_msg = str(e)
-            
-            self.logger.error(f"❌ OCO Order FAILED for {symbol}")
-            self.logger.error(f"   Error Code: {error_code}")
-            self.logger.error(f"   Error Message: {error_msg}")
-            
-            # Specific error code analysis and retry logic
-            if error_code == -2010:
-                self.logger.error(f"🔍 INSUFFICIENT BALANCE ANALYSIS:")
-                self.logger.error(f"   This indicates the account doesn't have enough {symbol.replace('USDT', '')} to sell")
-                self.logger.error(f"   Possible causes:")
-                self.logger.error(f"   • Asset balance not yet updated after recent buy order")
-                self.logger.error(f"   • Asset already locked in other orders")
-                self.logger.error(f"   • Rounding/precision issues with quantity")
+                self.logger.info(f"💰 {base_asset} Balance Check (Attempt {attempt}):")
+                self.logger.info(f"   Available: {available_balance}")
+                self.logger.info(f"   Locked: {locked_balance}")
                 
-                # Attempt automatic retry with fresh balance check
-                self.logger.warning(f"🔄 Attempting automatic recovery for {symbol}...")
-                try:
-                    import time
-                    time.sleep(2)  # Wait for balance to update
-                    
-                    # Get fresh account balance
-                    account_info = self.client.account()
-                    base_asset = symbol.replace('USDT', '').replace('BUSD', '').replace('BTC', '').replace('ETH', '')
-                    fresh_balance = 0.0
-                    
-                    for balance in account_info['balances']:
-                        if balance['asset'] == base_asset:
-                            fresh_balance = float(balance['free'])
-                            break
-                    
-                    if fresh_balance > 0:
-                        # Adjust quantity to available balance with small buffer
-                        buffer = max(0.001, fresh_balance * 0.001)  # 0.1% buffer
-                        retry_quantity = fresh_balance - buffer
-                        retry_quantity = self._round_quantity(symbol, retry_quantity)
-                        
-                        if retry_quantity > 0:
-                            self.logger.warning(f"🔄 Retrying OCO with adjusted quantity:")
-                            self.logger.warning(f"   Fresh Balance: {fresh_balance}")
-                            self.logger.warning(f"   Retry Quantity: {retry_quantity}")
-                            
-                            # Retry the OCO order with adjusted quantity
-                            response = self.client.new_oco_order(
-                                symbol=symbol,
-                                side="SELL",
-                                quantity=retry_quantity,
-                                price=limit_price,
-                                stopPrice=stop_price,
-                                stopLimitPrice=stop_price,
-                                stopLimitTimeInForce="GTC"
-                            )
-                            
-                            self.logger.info(f"✅ OCO order retry successful!")
-                            return self._parse_oco_response(response)
-                        else:
-                            self.logger.error(f"❌ Retry quantity too small: {retry_quantity}")
+                if available_balance <= 0:
+                    self.logger.error(f"❌ No {base_asset} balance available")
+                    if attempt < max_retries:
+                        wait_time = 2 + attempt  # Increasing wait: 3, 4, 5, 6 seconds
+                        self.logger.warning(f"🔄 Waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
+                        continue
                     else:
-                        self.logger.error(f"❌ No balance available for retry: {fresh_balance}")
-                        
-                except Exception as retry_error:
-                    self.logger.error(f"❌ OCO retry failed: {retry_error}")
+                        return OrderResult(
+                            success=False,
+                            order_id=None,
+                            filled_quantity=0.0,
+                            filled_price=0.0,
+                            commission=0.0,
+                            error_message=f"No {base_asset} balance available after {max_retries} attempts"
+                        )
                 
-                self.logger.error(f"   💡 SUGGESTED ACTIONS:")
-                self.logger.error(f"   • Wait a few seconds and retry")
-                self.logger.error(f"   • Check account balance manually")
-                self.logger.error(f"   • Use balance-aware OCO placement script")
+                # Calculate order quantity using current balance with safety buffer
+                buffer_percentage = 0.002 + (attempt * 0.001)  # Increasing buffer: 0.2%, 0.3%, 0.4%, etc.
+                buffer = max(0.001, current_balance * buffer_percentage)
+                order_quantity = current_balance - buffer
+                order_quantity = self._round_quantity(symbol, order_quantity)
                 
-            elif error_code == -1013:
-                self.logger.error(f"🔍 FILTER FAILURE ANALYSIS:")
-                self.logger.error(f"   This indicates the order doesn't meet exchange requirements")
-                self.logger.error(f"   Possible causes:")
-                self.logger.error(f"   • Quantity doesn't meet LOT_SIZE filter")
-                self.logger.error(f"   • Price doesn't meet PRICE_FILTER requirements")
-                self.logger.error(f"   • Order value below NOTIONAL minimum")
+                if order_quantity <= 0:
+                    self.logger.error(f"❌ Quantity too small after adjustment: {order_quantity}")
+                    if attempt < max_retries:
+                        wait_time = 2 + attempt
+                        self.logger.warning(f"🔄 Waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        return OrderResult(
+                            success=False,
+                            order_id=None,
+                            filled_quantity=0.0,
+                            filled_price=0.0,
+                            commission=0.0,
+                            error_message="Quantity too small after adjustment"
+                        )
                 
-            elif error_code == -1102:
-                self.logger.error(f"🔍 PARAMETER ERROR ANALYSIS:")
-                self.logger.error(f"   Missing or malformed request parameters")
-                self.logger.error(f"   Check API parameter format and requirements")
+                self.logger.info(f"🚀 Placing OCO order (Attempt {attempt}):")
+                self.logger.info(f"   Quantity: {order_quantity} {base_asset} (from balance: {current_balance})")
+                self.logger.info(f"   Stop Price: ${stop_price:.8f}")
+                self.logger.info(f"   Limit Price: ${limit_price:.8f}")
+                self.logger.info(f"   Buffer Used: {buffer:.6f} ({buffer_percentage*100:.1f}%)")
                 
-            else:
-                self.logger.error(f"🔍 GENERAL ERROR ANALYSIS:")
-                self.logger.error(f"   Unexpected error code: {error_code}")
-                self.logger.error(f"   Check Binance API documentation for details")
-            
-            # Log recovery suggestions
-            self.logger.error(f"🛠️  RECOVERY OPTIONS:")
-            self.logger.error(f"   1. Run: python scripts/balance_aware_oco.py")
-            self.logger.error(f"   2. Run: python scripts/check_balances.py")
-            self.logger.error(f"   3. Run: python scripts/check_open_orders.py")
-            self.logger.error(f"   4. Check logs above for balance verification details")
-            
-            return OrderResult(
-                success=False,
-                order_id=None,
-                filled_quantity=0.0,
-                filled_price=0.0,
-                commission=0.0,
-                error_message=str(e),
-                raw_response=None
-            )
+                # Place the OCO order
+                response = self.client.new_oco_order(
+                    symbol=symbol,
+                    side="SELL",
+                    quantity=order_quantity,
+                    price=limit_price,
+                    stopPrice=stop_price,
+                    stopLimitPrice=stop_price,
+                    stopLimitTimeInForce="GTC"
+                )
+                
+                self.logger.info(f"✅ OCO order placed successfully on attempt {attempt}!")
+                self.logger.info(f"   Final quantity: {order_quantity} {base_asset}")
+                return self._parse_oco_response(response)
+                
+            except ClientError as e:
+                error_code = e.error_code if hasattr(e, 'error_code') else 'Unknown'
+                error_msg = str(e)
+                
+                self.logger.error(f"❌ OCO Order FAILED on attempt {attempt}/{max_retries} for {symbol}")
+                self.logger.error(f"   Error Code: {error_code}")
+                self.logger.error(f"   Error Message: {error_msg}")
+                self.logger.error(f"   Used balance: {current_balance}, calculated quantity: {order_quantity if 'order_quantity' in locals() else 'N/A'}")
+                
+                # Check if this is an insufficient balance error
+                if error_code == -2010:
+                    self.logger.warning(f"🔍 Insufficient balance error detected")
+                    if attempt < max_retries:
+                        wait_time = 2 + attempt  # Increasing wait time
+                        self.logger.warning(f"🔄 Will recalculate balance and retry in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        self.logger.error(f"💡 All retry attempts exhausted for insufficient balance")
+                        return OrderResult(
+                            success=False,
+                            order_id=None,
+                            filled_quantity=0.0,
+                            filled_price=0.0,
+                            commission=0.0,
+                            error_message=f"Insufficient balance after {max_retries} attempts"
+                        )
+                else:
+                    # For other errors, don't retry
+                    self.logger.error(f"💡 Non-retryable error: {error_code}")
+                    return OrderResult(
+                        success=False,
+                        order_id=None,
+                        filled_quantity=0.0,
+                        filled_price=0.0,
+                        commission=0.0,
+                        error_message=error_msg
+                    )
+                    
+            except Exception as e:
+                self.logger.error(f"❌ Unexpected error on attempt {attempt}/{max_retries}: {e}")
+                if attempt < max_retries:
+                    wait_time = 2 + attempt
+                    self.logger.warning(f"🔄 Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    return OrderResult(
+                        success=False,
+                        order_id=None,
+                        filled_quantity=0.0,
+                        filled_price=0.0,
+                        commission=0.0,
+                        error_message=str(e)
+                    )
+        
+        # If we get here, all retries have been exhausted
+        self.logger.error(f"❌ OCO order failed after {max_retries} attempts for {symbol}")
+        return OrderResult(
+            success=False,
+            order_id=None,
+            filled_quantity=0.0,
+            filled_price=0.0,
+            commission=0.0,
+            error_message=f"OCO order failed after {max_retries} retries"
+        )
+    
     
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         """Cancel an existing order."""
