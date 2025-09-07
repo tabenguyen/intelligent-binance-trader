@@ -93,6 +93,16 @@ class ITradeExecutor(ABC):
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         """Cancel an existing order."""
         pass
+    
+    @abstractmethod
+    def get_oco_order_status(self, symbol: str, order_list_id: str) -> Optional[str]:
+        """Get OCO order status from the exchange."""
+        pass
+    
+    @abstractmethod
+    def get_oco_order_details(self, symbol: str, order_list_id: str) -> Optional[dict]:
+        """Get detailed OCO order information including individual order statuses."""
+        pass
 
 
 class IRiskManager(ABC):

@@ -74,7 +74,9 @@ class TradingBot:
     def start(self) -> None:
         """Start the trading bot."""
         try:
-            self.logger.info("🚀 Starting Trading Bot...")
+            self.logger.info("=" * 80)
+            self.logger.info("🚀 STARTING TRADING BOT")
+            self.logger.info("=" * 80)
             self.running = True
             
             # Validate configuration
@@ -84,16 +86,22 @@ class TradingBot:
             self._main_loop()
             
         except KeyboardInterrupt:
-            self.logger.info("Trading bot stopped by user")
+            self.logger.info("=" * 80)
+            self.logger.info("🛑 TRADING BOT STOPPED BY USER")
+            self.logger.info("=" * 80)
         except Exception as e:
-            self.logger.error(f"Trading bot error: {e}")
+            self.logger.error("=" * 80)
+            self.logger.error(f"❌ TRADING BOT ERROR: {e}")
+            self.logger.error("=" * 80)
             self.notification_service.send_error_notification(str(e))
         finally:
             self.stop()
     
     def stop(self) -> None:
         """Stop the trading bot."""
-        self.logger.info("🛑 Stopping Trading Bot...")
+        self.logger.info("=" * 80)
+        self.logger.info("🛑 STOPPING TRADING BOT")
+        self.logger.info("=" * 80)
         self.running = False
     
     def _main_loop(self) -> None:
@@ -102,45 +110,60 @@ class TradingBot:
         while self.running:
             try:
                 cycle_count += 1
-                self.logger.info(f"🔄 Starting trading cycle #{cycle_count}")
+                self.logger.info("=" * 60)
+                self.logger.info(f"🔄 STARTING TRADING CYCLE #{cycle_count}")
+                self.logger.info("=" * 60)
                 start_time = time.time()
                 
                 self._trading_cycle()
                 
                 cycle_duration = time.time() - start_time
-                self.logger.info(f"⏱️  Cycle #{cycle_count} completed in {cycle_duration:.2f}s")
+                self.logger.info("-" * 60)
+                self.logger.info(f"⏱️  CYCLE #{cycle_count} COMPLETED in {cycle_duration:.2f}s")
+                self.logger.info("-" * 60)
                 
                 # Calculate next scan time
                 next_scan_time = time.strftime('%H:%M:%S', time.localtime(time.time() + self.config.scan_interval))
-                self.logger.info(f"💤 Waiting {self.config.scan_interval}s until next scan (next: {next_scan_time})")
+                self.logger.info(f"💤 WAITING {self.config.scan_interval}s until next scan (next: {next_scan_time})")
+                self.logger.info("=" * 60)
                 
                 time.sleep(self.config.scan_interval)
                 
             except Exception as e:
-                self.logger.error(f"Error in trading cycle: {e}")
+                self.logger.error("!" * 60)
+                self.logger.error(f"❌ ERROR IN TRADING CYCLE: {e}")
+                self.logger.error("!" * 60)
                 self.notification_service.send_error_notification(str(e))
                 self.logger.info("💤 Waiting 60s before retrying after error...")
                 time.sleep(60)  # Wait before retrying
     
     def _trading_cycle(self) -> None:
         """Execute one trading cycle."""
-        # Refresh watchlist from market movers each scan
+        
+        # STEP 1: Refresh watchlist
+        self.logger.info("🔹 STEP 1: REFRESHING WATCHLIST")
+        self.logger.info("-" * 40)
         self._refresh_watchlist()
 
-        # Update existing positions
+        # STEP 2: Update existing positions
+        self.logger.info("🔹 STEP 2: UPDATING EXISTING POSITIONS")
+        self.logger.info("-" * 40)
         active_positions = self.position_manager.get_positions()
         if active_positions:
-            self.logger.info(f"📊 Updating {len(active_positions)} active positions...")
+            self.logger.info(f"📊 Found {len(active_positions)} active positions to update")
             self._update_positions()
         else:
             self.logger.info("📊 No active positions to update")
         
-        # Scan for new opportunities
+        # STEP 3: Scan for new opportunities
+        self.logger.info("🔹 STEP 3: SCANNING FOR NEW OPPORTUNITIES")
+        self.logger.info("-" * 40)
         symbols_to_scan = [symbol for symbol in self.config.symbols 
                           if not self.position_manager.has_position(symbol)]
         
         if symbols_to_scan:
-            self.logger.info(f"🔍 Scanning {len(symbols_to_scan)} symbols for opportunities: {', '.join(symbols_to_scan)}")
+            self.logger.info(f"🔍 Scanning {len(symbols_to_scan)} symbols for opportunities")
+            self.logger.info(f"📋 Symbols: {', '.join(symbols_to_scan)}")
             
             # Collect all signals first
             all_signals = []
@@ -174,6 +197,10 @@ class TradingBot:
                 except Exception as e:
                     self.logger.error(f"Error analyzing {symbol}: {e}")
             
+            # STEP 4: Process signals
+            self.logger.info("🔹 STEP 4: PROCESSING SIGNALS")
+            self.logger.info("-" * 40)
+            
             # Sort signals by core conditions count (descending), then by confidence (descending)
             if all_signals:
                 all_signals.sort(key=lambda s: (s.core_conditions_count, s.confidence), reverse=True)
@@ -205,9 +232,12 @@ class TradingBot:
             else:
                 signals_found = 0
                 signals_executed = 0
+                self.logger.info("📋 No valid signals found")
             
             # Summary of scanning results
-            self.logger.info(f"📋 Scan completed: {signals_found} signals found, {signals_executed} executed")
+            self.logger.info("🔹 STEP 4 SUMMARY")
+            self.logger.info("-" * 40)
+            self.logger.info(f"� Scan completed: {signals_found} signals found, {signals_executed} executed")
             
         else:
             self.logger.info("💼 All symbols have active positions - no scanning needed")
@@ -224,10 +254,11 @@ class TradingBot:
                 prev_count = len(self.config.symbols)
                 self.config.symbols = symbols
                 self.logger.info(f"✅ Watchlist updated: {prev_count} -> {len(symbols)} symbols")
+                self.logger.info(f"📋 Current watchlist: {', '.join(symbols)}")
             else:
                 self.logger.warning("⚠️  Watchlist refresh returned no symbols; keeping existing list")
         except Exception as e:
-            self.logger.warning(f"Could not refresh watchlist: {e}")
+            self.logger.warning(f"⚠️  Could not refresh watchlist: {e}")
 
     def _read_watchlist_file(self) -> List[str]:
         """Read symbols from configured watchlist file."""
@@ -280,15 +311,22 @@ class TradingBot:
     def _process_signal(self, signal: TradingSignal) -> None:
         """Process a trading signal."""
         try:
-            self.logger.info(f"🎯 PROCESSING SIGNAL for {signal.symbol}")
+            self.logger.info("🎯" + "=" * 50)
+            self.logger.info(f"🎯 PROCESSING SIGNAL FOR {signal.symbol}")
+            self.logger.info("🎯" + "=" * 50)
             self.logger.info(f"   Strategy: {signal.strategy_name}")
             self.logger.info(f"   Confidence: {signal.confidence:.1%}")
             self.logger.info(f"   Signal Price: ${signal.price:.4f}")
+            self.logger.info(f"   Core Conditions: {signal.core_conditions_count}/4")
             
             # Check if symbol is tradeable (market not closed/suspended)
             if not check_symbol_tradeable(signal.symbol):
                 self.logger.warning(f"❌ Signal for {signal.symbol} rejected - market is closed or suspended")
                 return
+            
+            self.logger.info("💰" + "-" * 30)
+            self.logger.info("💰 RISK MANAGEMENT & POSITION SIZING")
+            self.logger.info("💰" + "-" * 30)
             
             # Get current balance
             current_balance = self.market_data_provider.get_account_balance()
@@ -318,7 +356,10 @@ class TradingBot:
                 position_size = self.risk_manager.calculate_position_size(signal, final_balance)
                 current_balance = final_balance
             
-            self.logger.info(f"💰 EXECUTING TRADE for {signal.symbol}")
+            self.logger.info("🔥" + "-" * 30)
+            self.logger.info("� EXECUTING TRADE")
+            self.logger.info("🔥" + "-" * 30)
+            self.logger.info(f"   Symbol: {signal.symbol}")
             self.logger.info(f"   Order Type: {self.config.order_type.upper()}")
             self.logger.info(f"   Position Size: {position_size:.6f}")
             self.logger.info(f"   Stop Loss: ${stop_loss:.4f}")
@@ -334,6 +375,14 @@ class TradingBot:
                 return
             
             if result and result.success:
+                self.logger.info("🎉" + "=" * 40)
+                self.logger.info("🎉 TRADE EXECUTED SUCCESSFULLY!")
+                self.logger.info("🎉" + "=" * 40)
+                self.logger.info(f"   Symbol: {signal.symbol}")
+                self.logger.info(f"   Quantity: {result.filled_quantity:.6f}")
+                self.logger.info(f"   Entry Price: ${result.filled_price:.4f}")
+                self.logger.info(f"   Total Value: ${result.filled_quantity * result.filled_price:.2f}")
+                
                 # Create position
                 position = Position(
                     symbol=signal.symbol,
@@ -351,14 +400,11 @@ class TradingBot:
                 # Send notifications
                 self.notification_service.send_signal_notification(signal)
                 
-                self.logger.info(f"🎉 TRADE EXECUTED SUCCESSFULLY!")
-                self.logger.info(f"   Symbol: {signal.symbol}")
-                self.logger.info(f"   Quantity: {result.filled_quantity:.6f}")
-                self.logger.info(f"   Entry Price: ${result.filled_price:.4f}")
-                self.logger.info(f"   Total Value: ${result.filled_quantity * result.filled_price:.2f}")
-                
                 # Place OCO order for stop loss and take profit if enabled
                 if self.config.enable_oco_orders:
+                    self.logger.info("🛡️" + "-" * 30)
+                    self.logger.info("🛡️ PLACING PROTECTION ORDERS")
+                    self.logger.info("🛡️" + "-" * 30)
                     self.logger.info(f"📋 Placing OCO order for {signal.symbol} position...")
                     oco_result = self._place_oco_order(position)
                     if oco_result and oco_result.success:
@@ -369,17 +415,25 @@ class TradingBot:
                     else:
                         # OCO order failed - position remains unprotected
                         error_msg = oco_result.error_message if oco_result else "Unknown error"
+                        self.logger.error("!" * 60)
                         self.logger.error(f"❌ CRITICAL: OCO order failed for {signal.symbol} - Position is unprotected!")
                         self.logger.error(f"   Error: {error_msg}")
                         self.logger.error(f"   Position Value: ${position.quantity * position.entry_price:.2f}")
                         self.logger.error(f"   Manual Action Required: Please place stop-loss orders manually via Binance interface")
+                        self.logger.error("!" * 60)
                     
             else:
                 error_msg = result.error_message if result else "Unknown error"
-                self.logger.error(f"❌ Failed to execute trade for {signal.symbol}: {error_msg}")
+                self.logger.error("❌" + "=" * 40)
+                self.logger.error(f"❌ TRADE EXECUTION FAILED")
+                self.logger.error("❌" + "=" * 40)
+                self.logger.error(f"   Symbol: {signal.symbol}")
+                self.logger.error(f"   Error: {error_msg}")
                 
         except Exception as e:
-            self.logger.error(f"❌ Error processing signal for {signal.symbol}: {e}")
+            self.logger.error("!" * 60)
+            self.logger.error(f"❌ ERROR PROCESSING SIGNAL FOR {signal.symbol}: {e}")
+            self.logger.error("!" * 60)
             self.notification_service.send_error_notification(str(e))
     
     def _execute_market_order(self, signal: TradingSignal, position_size: float) -> OrderResult:
@@ -390,9 +444,17 @@ class TradingBot:
         """Execute a limit order with retries."""
         # Offset used to compute limit price from the latest market price each attempt
         offset = self.config.limit_order_offset_percentage / 100
-        self.logger.info(f"📋 Limit order strategy (offset {self.config.limit_order_offset_percentage}% below last price)")
+        self.logger.info("📋" + "-" * 30)
+        self.logger.info("📋 LIMIT ORDER STRATEGY")
+        self.logger.info("📋" + "-" * 30)
+        self.logger.info(f"📋 Using {self.config.limit_order_offset_percentage}% offset below last price")
+        self.logger.info(f"📋 Max retries: {self.config.max_limit_order_retries}")
         
         for attempt in range(1, self.config.max_limit_order_retries + 1):
+            self.logger.info(f"🔄" + "-" * 25)
+            self.logger.info(f"🔄 LIMIT ORDER ATTEMPT {attempt}/{self.config.max_limit_order_retries}")
+            self.logger.info(f"🔄" + "-" * 25)
+            
             # Refresh current price before each attempt
             try:
                 current_price = self.market_data_provider.get_current_price(signal.symbol)
@@ -404,10 +466,7 @@ class TradingBot:
 
             limit_price = current_price * (1 - offset)
 
-            self.logger.info(
-                f"🔄 Limit order attempt {attempt}/{self.config.max_limit_order_retries} | "
-                f"Last Price: ${current_price:.4f} -> Limit: ${limit_price:.4f}"
-            )
+            self.logger.info(f"� Last Price: ${current_price:.4f} -> Limit Price: ${limit_price:.4f}")
             
             result = self.trade_executor.execute_limit_buy(signal.symbol, position_size, limit_price)
             
@@ -418,7 +477,7 @@ class TradingBot:
                     return result
                 else:
                     # Order placed, wait and check status
-                    self.logger.info(f"⏳ Limit order placed, waiting {self.config.limit_order_retry_delay}s...")
+                    self.logger.info(f"⏳ Limit order placed (ID: {result.order_id}), waiting {self.config.limit_order_retry_delay}s...")
                     time.sleep(self.config.limit_order_retry_delay)
                     
                     # Check if order was filled during wait period
@@ -452,7 +511,11 @@ class TradingBot:
                     
                     # Order not filled, cancel and retry or switch to market order
                     if attempt == self.config.max_limit_order_retries:
-                        self.logger.warning(f"⚠️  Limit order not filled after {attempt} attempts, switching to market order")
+                        self.logger.warning("⚠️" + "-" * 30)
+                        self.logger.warning("⚠️  SWITCHING TO MARKET ORDER")
+                        self.logger.warning("⚠️" + "-" * 30)
+                        self.logger.warning(f"⚠️  Limit order not filled after {attempt} attempts")
+                        
                         # Check if order was filled before cancelling
                         order_status = self.trade_executor.get_order_status(signal.symbol, result.order_id)
                         if order_status == 'FILLED':
@@ -589,7 +652,9 @@ class TradingBot:
         
         for i, position in enumerate(positions, 1):
             try:
-                self.logger.info(f"📊 [{i}/{len(positions)}] Updating position: {position.symbol}")
+                self.logger.info(f"📊" + "-" * 40)
+                self.logger.info(f"📊 UPDATING POSITION [{i}/{len(positions)}]: {position.symbol}")
+                self.logger.info(f"📊" + "-" * 40)
                 
                 # Get current price
                 current_price = self.market_data_provider.get_current_price(position.symbol)
@@ -601,6 +666,9 @@ class TradingBot:
                 
                 self.logger.info(f"   Entry: ${position.entry_price:.4f} → Current: ${current_price:.4f} ({pnl_percentage:+.2f}%)")
                 self.logger.info(f"   P&L: ${pnl:+.2f} | Quantity: {position.quantity:.6f}")
+                self.logger.info(f"   Stop Loss: ${position.stop_loss:.4f} | Take Profit: ${position.take_profit:.4f}")
+                if position.oco_order_id:
+                    self.logger.info(f"   OCO Order ID: {position.oco_order_id}")
                 
                 # Update position
                 self.position_manager.update_position(position.symbol, current_price)
@@ -620,27 +688,74 @@ class TradingBot:
             # Check OCO order status (for positions with tracked OCO order IDs)
             if position.oco_order_id:
                 try:
-                    order_status = self.trade_executor.get_oco_order_status(position.symbol, position.oco_order_id)
+                    # Get detailed OCO information for better logging
+                    oco_details = self.trade_executor.get_oco_order_details(position.symbol, position.oco_order_id)
                     
-                    if order_status == "CANCELED":
-                        self.logger.warning(f"⚠️  OCO order {position.oco_order_id} for {position.symbol} was cancelled externally")
-                        self.logger.info(f"🗑️  Removing position {position.symbol} - no exit protection")
+                    if oco_details:
+                        order_status = oco_details['status']
+                        filled_type = oco_details.get('filled_order_type')
+                        filled_price = oco_details.get('filled_price')
                         
-                        # Close position record without executing trade (since OCO was cancelled externally)
-                        trade = self.position_manager.close_position(position.symbol, current_price)
+                        self.logger.info(f"🔍 OCO Order Status for {position.symbol}: {order_status}")
                         
-                        self.logger.info(f"✅ Position removed: {position.symbol} @ ${current_price:.4f} (OCO Cancelled)")
-                        return
+                        # Handle all possible OCO completion statuses
+                        if order_status in ["ALL_DONE", "FILLED", "PARTIALLY_FILLED"]:
+                            if filled_type and filled_price:
+                                self.logger.info(f"✅ OCO order completed via {filled_type} at ${filled_price:.4f}")
+                            else:
+                                self.logger.info(f"✅ OCO order completed for {position.symbol} (Status: {order_status})")
+                            
+                            self.logger.info(f"🗑️  Removing completed position from active trades")
+                            
+                            # Close position record (OCO already executed the exit)
+                            trade = self.position_manager.close_position(position.symbol, current_price)
+                            
+                            self.notification_service.send_trade_notification(trade)
+                            self.logger.info(f"✅ Position closed: {position.symbol} @ ${current_price:.4f} (OCO Completed)")
+                            return
+                            
+                        elif order_status in ["CANCELED", "REJECT"]:
+                            self.logger.warning(f"⚠️  OCO order {position.oco_order_id} for {position.symbol} was cancelled/rejected (Status: {order_status})")
+                            self.logger.info(f"🗑️  Removing position {position.symbol} - no exit protection")
+                            
+                            # Close position record without executing trade (since OCO was cancelled externally)
+                            trade = self.position_manager.close_position(position.symbol, current_price)
+                            
+                            self.logger.info(f"✅ Position removed: {position.symbol} @ ${current_price:.4f} (OCO {order_status})")
+                            return
+                            
+                        elif order_status == "EXECUTING":
+                            self.logger.info(f"⏳ OCO order for {position.symbol} is still active")
+                            # Continue to fallback checks if needed
                         
-                    elif order_status in ["FILLED", "PARTIALLY_FILLED"]:
-                        self.logger.info(f"✅ OCO order executed for {position.symbol} - position should be closed")
+                        else:
+                            self.logger.warning(f"⚠️  Unknown OCO order status '{order_status}' for {position.symbol}")
+                            # Continue to fallback checks
+                    else:
+                        # Fallback to simple status check
+                        order_status = self.trade_executor.get_oco_order_status(position.symbol, position.oco_order_id)
+                        self.logger.info(f"🔍 OCO Order Status for {position.symbol}: {order_status}")
                         
-                        # Close position record (OCO already executed the exit)
-                        trade = self.position_manager.close_position(position.symbol, current_price)
-                        
-                        self.notification_service.send_trade_notification(trade)
-                        self.logger.info(f"✅ Position closed: {position.symbol} @ ${current_price:.4f} (OCO Executed)")
-                        return
+                        if order_status in ["ALL_DONE", "FILLED", "PARTIALLY_FILLED"]:
+                            self.logger.info(f"✅ OCO order completed for {position.symbol} (Status: {order_status})")
+                            self.logger.info(f"🗑️  Removing completed position from active trades")
+                            
+                            # Close position record (OCO already executed the exit)
+                            trade = self.position_manager.close_position(position.symbol, current_price)
+                            
+                            self.notification_service.send_trade_notification(trade)
+                            self.logger.info(f"✅ Position closed: {position.symbol} @ ${current_price:.4f} (OCO Completed)")
+                            return
+                            
+                        elif order_status in ["CANCELED", "REJECT"]:
+                            self.logger.warning(f"⚠️  OCO order {position.oco_order_id} for {position.symbol} was cancelled/rejected (Status: {order_status})")
+                            self.logger.info(f"🗑️  Removing position {position.symbol} - no exit protection")
+                            
+                            # Close position record without executing trade (since OCO was cancelled externally)
+                            trade = self.position_manager.close_position(position.symbol, current_price)
+                            
+                            self.logger.info(f"✅ Position removed: {position.symbol} @ ${current_price:.4f} (OCO {order_status})")
+                            return
                         
                 except Exception as e:
                     self.logger.warning(f"Could not check OCO order status for {position.symbol}: {e}")
@@ -759,16 +874,28 @@ class TradingBot:
     
     def _validate_configuration(self) -> None:
         """Validate trading configuration."""
+        self.logger.info("🔍" + "-" * 30)
+        self.logger.info("🔍 VALIDATING CONFIGURATION")
+        self.logger.info("🔍" + "-" * 30)
+        
         if not self.config.api_key or not self.config.api_secret:
+            self.logger.error("❌ API keys are missing!")
             raise ValueError("API keys are required")
         
         if not self.config.symbols:
+            self.logger.error("❌ No symbols configured!")
             raise ValueError("No symbols configured")
         
         if self.config.trade_amount <= 0:
+            self.logger.error("❌ Invalid trade amount!")
             raise ValueError("Trade amount must be positive")
         
-        self.logger.info("Configuration validated successfully")
+        self.logger.info("✅ Configuration validated successfully")
+        self.logger.info(f"   🔑 API Keys: Configured")
+        self.logger.info(f"   📊 Symbols: {len(self.config.symbols)} configured")
+        self.logger.info(f"   💰 Trade Amount: ${self.config.trade_amount}")
+        self.logger.info(f"   🏦 Testnet Mode: {'Enabled' if self.config.testnet else 'Disabled'}")
+        self.logger.info(f"   🔄 Scan Interval: {self.config.scan_interval}s")
     
     def get_status(self) -> dict:
         """Get current bot status."""
