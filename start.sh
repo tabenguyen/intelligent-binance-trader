@@ -72,6 +72,24 @@ start_bot() {
     fi
 }
 
+# Function to start the bot in development mode (foreground)
+start_dev() {
+    if is_running; then
+        local pid=$(cat "$PID_FILE")
+        print_message $YELLOW "⚠️  Trading bot is already running in background (PID: $pid)"
+        print_message $YELLOW "     Please stop it first with: $0 stop"
+        return 1
+    fi
+    
+    print_message $BLUE "🚀 Starting trading bot in DEVELOPMENT mode..."
+    print_message $YELLOW "⚠️  Running in foreground - Press Ctrl+C to stop"
+    print_message $BLUE "📋 Logs will be displayed in real-time"
+    echo ""
+    
+    # Run directly in foreground with real-time output
+    exec $PYTHON_CMD
+}
+
 # Function to stop the bot
 stop_bot() {
     if ! is_running; then
@@ -154,14 +172,20 @@ logs_bot() {
 usage() {
     echo "Trading Bot Control Script"
     echo ""
-    echo "Usage: $0 {start|stop|restart|status|logs}"
+    echo "Usage: $0 {start|dev|stop|restart|status|logs}"
     echo ""
     echo "Commands:"
-    echo "  start    - Start the trading bot"
+    echo "  start    - Start the trading bot in background"
+    echo "  dev      - Start the trading bot in development mode (foreground)"
     echo "  stop     - Stop the trading bot"
     echo "  restart  - Restart the trading bot"
     echo "  status   - Show bot status"
     echo "  logs     - Follow log output"
+    echo ""
+    echo "Development Mode:"
+    echo "  ./start.sh dev   - Run in foreground with real-time logs"
+    echo "                   - Press Ctrl+C to stop"
+    echo "                   - No background process created"
     echo ""
 }
 
@@ -169,6 +193,9 @@ usage() {
 case "${1:-start}" in
     start)
         start_bot
+        ;;
+    dev)
+        start_dev
         ;;
     stop)
         stop_bot
