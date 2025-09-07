@@ -688,27 +688,74 @@ class TradingBot:
             # Check OCO order status (for positions with tracked OCO order IDs)
             if position.oco_order_id:
                 try:
-                    order_status = self.trade_executor.get_oco_order_status(position.symbol, position.oco_order_id)
+                    # Get detailed OCO information for better logging
+                    oco_details = self.trade_executor.get_oco_order_details(position.symbol, position.oco_order_id)
                     
-                    if order_status == "CANCELED":
-                        self.logger.warning(f"⚠️  OCO order {position.oco_order_id} for {position.symbol} was cancelled externally")
-                        self.logger.info(f"🗑️  Removing position {position.symbol} - no exit protection")
+                    if oco_details:
+                        order_status = oco_details['status']
+                        filled_type = oco_details.get('filled_order_type')
+                        filled_price = oco_details.get('filled_price')
                         
-                        # Close position record without executing trade (since OCO was cancelled externally)
-                        trade = self.position_manager.close_position(position.symbol, current_price)
+                        self.logger.info(f"🔍 OCO Order Status for {position.symbol}: {order_status}")
                         
-                        self.logger.info(f"✅ Position removed: {position.symbol} @ ${current_price:.4f} (OCO Cancelled)")
-                        return
+                        # Handle all possible OCO completion statuses
+                        if order_status in ["ALL_DONE", "FILLED", "PARTIALLY_FILLED"]:
+                            if filled_type and filled_price:
+                                self.logger.info(f"✅ OCO order completed via {filled_type} at ${filled_price:.4f}")
+                            else:
+                                self.logger.info(f"✅ OCO order completed for {position.symbol} (Status: {order_status})")
+                            
+                            self.logger.info(f"🗑️  Removing completed position from active trades")
+                            
+                            # Close position record (OCO already executed the exit)
+                            trade = self.position_manager.close_position(position.symbol, current_price)
+                            
+                            self.notification_service.send_trade_notification(trade)
+                            self.logger.info(f"✅ Position closed: {position.symbol} @ ${current_price:.4f} (OCO Completed)")
+                            return
+                            
+                        elif order_status in ["CANCELED", "REJECT"]:
+                            self.logger.warning(f"⚠️  OCO order {position.oco_order_id} for {position.symbol} was cancelled/rejected (Status: {order_status})")
+                            self.logger.info(f"🗑️  Removing position {position.symbol} - no exit protection")
+                            
+                            # Close position record without executing trade (since OCO was cancelled externally)
+                            trade = self.position_manager.close_position(position.symbol, current_price)
+                            
+                            self.logger.info(f"✅ Position removed: {position.symbol} @ ${current_price:.4f} (OCO {order_status})")
+                            return
+                            
+                        elif order_status == "EXECUTING":
+                            self.logger.info(f"⏳ OCO order for {position.symbol} is still active")
+                            # Continue to fallback checks if needed
                         
-                    elif order_status in ["FILLED", "PARTIALLY_FILLED"]:
-                        self.logger.info(f"✅ OCO order executed for {position.symbol} - position should be closed")
+                        else:
+                            self.logger.warning(f"⚠️  Unknown OCO order status '{order_status}' for {position.symbol}")
+                            # Continue to fallback checks
+                    else:
+                        # Fallback to simple status check
+                        order_status = self.trade_executor.get_oco_order_status(position.symbol, position.oco_order_id)
+                        self.logger.info(f"🔍 OCO Order Status for {position.symbol}: {order_status}")
                         
-                        # Close position record (OCO already executed the exit)
-                        trade = self.position_manager.close_position(position.symbol, current_price)
-                        
-                        self.notification_service.send_trade_notification(trade)
-                        self.logger.info(f"✅ Position closed: {position.symbol} @ ${current_price:.4f} (OCO Executed)")
-                        return
+                        if order_status in ["ALL_DONE", "FILLED", "PARTIALLY_FILLED"]:
+                            self.logger.info(f"✅ OCO order completed for {position.symbol} (Status: {order_status})")
+                            self.logger.info(f"🗑️  Removing completed position from active trades")
+                            
+                            # Close position record (OCO already executed the exit)
+                            trade = self.position_manager.close_position(position.symbol, current_price)
+                            
+                            self.notification_service.send_trade_notification(trade)
+                            self.logger.info(f"✅ Position closed: {position.symbol} @ ${current_price:.4f} (OCO Completed)")
+                            return
+                            
+                        elif order_status in ["CANCELED", "REJECT"]:
+                            self.logger.warning(f"⚠️  OCO order {position.oco_order_id} for {position.symbol} was cancelled/rejected (Status: {order_status})")
+                            self.logger.info(f"🗑️  Removing position {position.symbol} - no exit protection")
+                            
+                            # Close position record without executing trade (since OCO was cancelled externally)
+                            trade = self.position_manager.close_position(position.symbol, current_price)
+                            
+                            self.logger.info(f"✅ Position removed: {position.symbol} @ ${current_price:.4f} (OCO {order_status})")
+                            return
                         
                 except Exception as e:
                     self.logger.warning(f"Could not check OCO order status for {position.symbol}: {e}")

@@ -52,6 +52,57 @@ class TradeExecutionService(ITradeExecutor):
             self.logger.warning(f"Invalid OCO order ID format {order_list_id}: {e}")
             return None
 
+    def get_oco_order_details(self, symbol: str, order_list_id: str) -> Optional[dict]:
+        """Get detailed OCO order information including individual order statuses."""
+        try:
+            # Convert string order_list_id to int for API call
+            order_list_id_int = int(order_list_id) if isinstance(order_list_id, str) else order_list_id
+            oco_order = self.client.get_oco_order(orderListId=order_list_id_int)
+            
+            # Extract useful information
+            status = oco_order.get('listOrderStatus')
+            orders = oco_order.get('orders', [])
+            
+            result = {
+                'status': status,
+                'orders': [],
+                'filled_order_type': None,
+                'filled_price': None
+            }
+            
+            for order in orders:
+                order_info = {
+                    'orderId': order.get('orderId'),
+                    'type': order.get('type'),
+                    'side': order.get('side'),
+                    'status': order.get('status'),
+                    'price': float(order.get('price', 0)),
+                    'origQty': float(order.get('origQty', 0)),
+                    'executedQty': float(order.get('executedQty', 0))
+                }
+                result['orders'].append(order_info)
+                
+                # Identify which order was filled for logging
+                if order.get('status') == 'FILLED':
+                    if order.get('type') == 'STOP_LOSS_LIMIT':
+                        result['filled_order_type'] = 'STOP_LOSS'
+                        result['filled_price'] = float(order.get('price', 0))
+                    elif order.get('type') == 'LIMIT_MAKER':
+                        result['filled_order_type'] = 'TAKE_PROFIT'
+                        result['filled_price'] = float(order.get('price', 0))
+                    elif order.get('type') == 'LIMIT':
+                        result['filled_order_type'] = 'TAKE_PROFIT'
+                        result['filled_price'] = float(order.get('price', 0))
+            
+            return result
+            
+        except ClientError as e:
+            self.logger.warning(f"Could not get detailed OCO order {order_list_id} on {symbol}: {e}")
+            return None
+        except ValueError as e:
+            self.logger.warning(f"Invalid OCO order ID format {order_list_id}: {e}")
+            return None
+
 
 class BinanceTradeExecutor(ITradeExecutor):
     """
@@ -407,6 +458,57 @@ class BinanceTradeExecutor(ITradeExecutor):
             return oco_order.get('listOrderStatus')
         except ClientError as e:
             self.logger.warning(f"Could not get status for OCO order {order_list_id} on {symbol}: {e}")
+            return None
+        except ValueError as e:
+            self.logger.warning(f"Invalid OCO order ID format {order_list_id}: {e}")
+            return None
+
+    def get_oco_order_details(self, symbol: str, order_list_id: str) -> Optional[dict]:
+        """Get detailed OCO order information including individual order statuses."""
+        try:
+            # Convert string order_list_id to int for API call
+            order_list_id_int = int(order_list_id) if isinstance(order_list_id, str) else order_list_id
+            oco_order = self.client.get_oco_order(orderListId=order_list_id_int)
+            
+            # Extract useful information
+            status = oco_order.get('listOrderStatus')
+            orders = oco_order.get('orders', [])
+            
+            result = {
+                'status': status,
+                'orders': [],
+                'filled_order_type': None,
+                'filled_price': None
+            }
+            
+            for order in orders:
+                order_info = {
+                    'orderId': order.get('orderId'),
+                    'type': order.get('type'),
+                    'side': order.get('side'),
+                    'status': order.get('status'),
+                    'price': float(order.get('price', 0)),
+                    'origQty': float(order.get('origQty', 0)),
+                    'executedQty': float(order.get('executedQty', 0))
+                }
+                result['orders'].append(order_info)
+                
+                # Identify which order was filled for logging
+                if order.get('status') == 'FILLED':
+                    if order.get('type') == 'STOP_LOSS_LIMIT':
+                        result['filled_order_type'] = 'STOP_LOSS'
+                        result['filled_price'] = float(order.get('price', 0))
+                    elif order.get('type') == 'LIMIT_MAKER':
+                        result['filled_order_type'] = 'TAKE_PROFIT'
+                        result['filled_price'] = float(order.get('price', 0))
+                    elif order.get('type') == 'LIMIT':
+                        result['filled_order_type'] = 'TAKE_PROFIT'
+                        result['filled_price'] = float(order.get('price', 0))
+            
+            return result
+            
+        except ClientError as e:
+            self.logger.warning(f"Could not get detailed OCO order {order_list_id} on {symbol}: {e}")
             return None
         except ValueError as e:
             self.logger.warning(f"Invalid OCO order ID format {order_list_id}: {e}")
