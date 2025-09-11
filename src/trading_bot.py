@@ -74,10 +74,35 @@ class TradingBot:
         self.logger.info(f"Trading Bot initialized with {len(self.strategies)} strategies")
     
     def start(self) -> None:
-        """Start the trading bot."""
+        """Start the trading bot for a single execution cycle."""
         try:
             self.logger.info("=" * 80)
             self.logger.info("🚀 STARTING TRADING BOT")
+            self.logger.info("=" * 80)
+            
+            # Validate configuration
+            self._validate_configuration()
+            
+            # Execute single trading cycle (no loop for scheduled execution)
+            self._execute_single_cycle()
+            
+        except KeyboardInterrupt:
+            self.logger.info("=" * 80)
+            self.logger.info("🛑 TRADING BOT STOPPED BY USER")
+            self.logger.info("=" * 80)
+        except Exception as e:
+            self.logger.error("=" * 80)
+            self.logger.error(f"❌ TRADING BOT ERROR: {e}")
+            self.logger.error("=" * 80)
+            self.notification_service.send_error_notification(str(e))
+        finally:
+            self.stop()
+    
+    def start_continuous(self) -> None:
+        """Start the trading bot in continuous mode (legacy mode)."""
+        try:
+            self.logger.info("=" * 80)
+            self.logger.info("🚀 STARTING TRADING BOT - CONTINUOUS MODE")
             self.logger.info("=" * 80)
             self.running = True
             
@@ -105,6 +130,30 @@ class TradingBot:
         self.logger.info("🛑 STOPPING TRADING BOT")
         self.logger.info("=" * 80)
         self.running = False
+    
+    def _execute_single_cycle(self) -> None:
+        """Execute a single trading cycle for scheduled execution."""
+        try:
+            self.logger.info("=" * 60)
+            self.logger.info("🔄 STARTING TRADING CYCLE #1")
+            self.logger.info("=" * 60)
+            start_time = time.time()
+            
+            self._trading_cycle()
+            
+            cycle_duration = time.time() - start_time
+            self.logger.info("-" * 60)
+            self.logger.info(f"⏱️  CYCLE #1 COMPLETED in {cycle_duration:.2f}s")
+            self.logger.info("-" * 60)
+            self.logger.info("🏁 Single execution completed - exiting for scheduler control")
+            self.logger.info("=" * 60)
+            
+        except Exception as e:
+            self.logger.error("!" * 60)
+            self.logger.error(f"❌ ERROR IN TRADING CYCLE: {e}")
+            self.logger.error("!" * 60)
+            self.notification_service.send_error_notification(str(e))
+            raise  # Re-raise to let scheduler handle the error
     
     def _main_loop(self) -> None:
         """Main trading loop."""

@@ -10,6 +10,26 @@ The dependency issues have been resolved:
 - **pandas-ta**: Using >=0.3.14 with pre-release support
 - **schedule**: Successfully added for Python-based scheduling
 
+## 🚀 Bot Execution Modes
+
+### Default Mode: Single Execution (Scheduler-Controlled)
+
+```bash
+# Single execution - runs once and exits (default)
+uv run python main.py
+```
+
+**Perfect for scheduled execution via cron or external schedulers**
+
+### Legacy Mode: Continuous Loop
+
+```bash
+# Continuous mode with internal 1-hour loop (legacy)
+uv run python main.py --continuous
+```
+
+**Only use for manual testing or special cases**
+
 ## 🎯 Optimal 4H Candle Scheduling - Vietnam Time (UTC+7)
 
 ### Schedule Overview
@@ -66,9 +86,16 @@ uv run python main.py
 ### Step 1: Verify Dependencies
 
 ```bash
-# Test bot execution
+# Test bot execution (single run)
+uv run python main.py
+# Should complete one cycle and exit cleanly
+
+# Test continuous mode (legacy)
+timeout 10s uv run python main.py --continuous
+# Should start loop and be terminated by timeout
+
+# View help
 uv run python main.py --help
-# Should run without errors and show bot starting
 ```
 
 ### Step 2: Choose Scheduling Method
