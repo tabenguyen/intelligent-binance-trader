@@ -19,7 +19,9 @@ from .services import (
     TechnicalAnalysisService, RiskManagementService,
     PositionManagementService, LoggingNotificationService
 )
+from .services.enhanced_risk_management_service import EnhancedRiskManagementService
 from .strategies import EMACrossStrategy
+from .strategies.improved_ema_cross_strategy import ImprovedEMACrossStrategy
 from .utils.config import load_strategy_configs
 
 
@@ -58,7 +60,7 @@ class TradingBot:
             testnet=config.testnet
         )
         
-        self.risk_manager: IRiskManager = RiskManagementService(config)
+        self.risk_manager: IRiskManager = EnhancedRiskManagementService(config)
         
         self.position_manager: IPositionManager = PositionManagementService(
             config.get_mode_specific_active_trades_file()
@@ -858,15 +860,18 @@ class TradingBot:
         # Load strategy configurations from environment
         strategy_configs = load_strategy_configs()
         
-        # Add EMA Cross Strategy with proper configuration
+        # Use ENHANCED EMA Cross Strategy - "Quality over Quantity"
         ema_config = next((config for config in strategy_configs if "EMA Cross" in config.name), None)
         if ema_config:
-            ema_strategy = EMACrossStrategy(ema_config)
-            strategies.append(ema_strategy)
+            # Use the enhanced strategy for better quality trades
+            improved_ema_strategy = ImprovedEMACrossStrategy(ema_config)
+            strategies.append(improved_ema_strategy)
+            self.logger.info("✅ Loaded ENHANCED EMA Cross Strategy - Quality over Quantity focus")
         else:
-            # Fallback to default if no config found
-            ema_strategy = EMACrossStrategy()
-            strategies.append(ema_strategy)
+            # Fallback to enhanced strategy with default config
+            improved_ema_strategy = ImprovedEMACrossStrategy()
+            strategies.append(improved_ema_strategy)
+            self.logger.info("✅ Loaded ENHANCED EMA Cross Strategy with default config")
         
         # Add more strategies here as needed
         
