@@ -21,6 +21,8 @@ class RiskConfig:
     fixed_allocation_percentage: float = 2.0
     # Minimum notional value in USDT for trade execution
     min_notional_usdt: float = 15.0
+    # Minimum trade value in USDT
+    min_trade_value_usdt: float = 20.0
 
 
 @dataclass
@@ -110,7 +112,8 @@ class TradingConfig:
             take_profit_percentage=get_env_float("TAKE_PROFIT_PCT", 10.0),
             risk_per_trade_percentage=get_env_float("RISK_PER_TRADE_PCT", 2.0),
             fixed_allocation_percentage=get_env_float("FIXED_ALLOCATION_PCT", 2.0),
-            min_notional_usdt=get_env_float("MIN_NOTIONAL_USDT", 15.0)
+            min_notional_usdt=get_env_float("MIN_NOTIONAL_USDT", 15.0),
+            min_trade_value_usdt=get_env_float("MIN_TRADE_VALUE_USDT", 20.0)
         )
         
         return cls(

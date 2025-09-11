@@ -225,6 +225,14 @@ class EnhancedRiskManagementService(IRiskManager):
         """Enhanced trade value validation with quality considerations."""
         self.logger.info(f"📊 ENHANCED CHECK 5: Trade Value vs Risk Limits")
         
+        # Minimum trade value validation from configuration
+        min_trade_value = self.config.min_trade_value_usdt
+        self.logger.info(f"   Minimum Trade Value: ${min_trade_value:.2f}")
+        
+        if trade_value < min_trade_value:
+            self.logger.warning(f"❌ FAILED - Trade value ${trade_value:.2f} below minimum ${min_trade_value:.2f}")
+            return False
+        
         # Base maximum trade value (more conservative)
         base_max_percent = min(self.config.risk_per_trade_percentage, 60)  # Cap at 60%
         base_max_value = balance * (base_max_percent / 100)
