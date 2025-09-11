@@ -177,7 +177,14 @@ class EnhancedRiskManagementService(IRiskManager):
                 self.logger.warning("❌ Cannot calculate risk-based size without stop loss")
                 return 0.0
             
-            # Calculate risk amount based on signal quality
+            # Use fixed allocation percentage of balance for position sizing
+            allocation_percent = self.config.fixed_allocation_percentage / 100.0
+            allocated_balance = balance * allocation_percent
+            
+            self.logger.info(f"   Fixed Allocation: {self.config.fixed_allocation_percentage:.1f}% of balance")
+            self.logger.info(f"   Allocated Amount: ${allocated_balance:.2f}")
+            
+            # Calculate risk amount based on signal quality from allocated balance
             base_risk_percent = min(self.config.risk_per_trade_percentage / 100, self.max_risk_per_trade / 100)
             
             # Quality adjustment: High quality signals get slightly more allocation
@@ -190,8 +197,8 @@ class EnhancedRiskManagementService(IRiskManager):
                 self.logger.info(f"   Quality Bonus: +10% for high quality signal")
             
             adjusted_risk_percent = base_risk_percent * quality_multiplier
-            risk_amount = balance * adjusted_risk_percent
-            
+            risk_amount = allocated_balance * adjusted_risk_percent
+
             # Calculate position size based on actual risk
             price_risk = signal.price - signal.stop_loss
             if price_risk <= 0:
@@ -213,7 +220,7 @@ class EnhancedRiskManagementService(IRiskManager):
             self.logger.info(f"   Base Risk %: {base_risk_percent*100:.2f}%")
             self.logger.info(f"   Quality Multiplier: {quality_multiplier:.1f}x")
             self.logger.info(f"   Adjusted Risk %: {adjusted_risk_percent*100:.2f}%")
-            self.logger.info(f"   Risk Amount: ${risk_amount:.2f}")
+            self.logger.info(f"   Risk Amount: ${risk_amount:.2f} (from ${allocated_balance:.2f} allocated)")
             self.logger.info(f"   Price Risk: ${price_risk:.4f}")
             self.logger.info(f"   Position Size: {position_size:.6f}")
             self.logger.info(f"   Trade Value: ${position_size * signal.price:.2f}")
@@ -254,8 +261,8 @@ class EnhancedRiskManagementService(IRiskManager):
         """Validate overall portfolio risk exposure."""
         self.logger.info(f"📊 ENHANCED CHECK 7: Portfolio Risk Assessment")
         
-        # Conservative portfolio risk - max 10% of balance in single trade
-        max_portfolio_risk = 0.10
+        # Use configured risk percentage for portfolio limit
+        max_portfolio_risk = self.config.risk_per_trade_percentage / 100.0
         max_trade_value = balance * max_portfolio_risk
         
         self.logger.info(f"   Portfolio Risk Limit: {max_portfolio_risk*100:.1f}% of balance")
