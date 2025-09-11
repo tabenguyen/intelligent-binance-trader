@@ -3,15 +3,16 @@ name = "trading-bot-ai"
 version = "2.0.0"
 description = "A SOLID-principles based cryptocurrency trading bot"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 dependencies = [
     "binance-connector==3.6.0",
-    "pandas==2.2.2",
-    "pandas-ta==0.3.14b",
+    "pandas>=2.3.2",
+    "pandas-ta>=0.3.14",
     "setuptools==69.5.1",
-    "numpy==1.26.4",
+    "numpy>=2.2.6",
     "python-dotenv==1.0.0",
     "python-binance>=1.0.29",
+    "schedule",
 ]
 
 [project.scripts]
