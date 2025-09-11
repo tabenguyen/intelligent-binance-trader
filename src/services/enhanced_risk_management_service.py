@@ -200,16 +200,6 @@ class EnhancedRiskManagementService(IRiskManager):
             
             position_size = risk_amount / price_risk
             
-            # Ensure minimum notional is met
-            trade_value = position_size * signal.price
-            if trade_value < self.config.min_notional_usdt:
-                if balance >= self.config.min_notional_usdt:
-                    self.logger.info(f"   Enforcing minimum notional: ${self.config.min_notional_usdt:.2f}")
-                    position_size = self.config.min_notional_usdt / signal.price
-                else:
-                    self.logger.warning(f"   Balance too low for minimum notional")
-                    return 0.0
-            
             self.logger.info(f"   Base Risk %: {base_risk_percent*100:.2f}%")
             self.logger.info(f"   Quality Multiplier: {quality_multiplier:.1f}x")
             self.logger.info(f"   Adjusted Risk %: {adjusted_risk_percent*100:.2f}%")
