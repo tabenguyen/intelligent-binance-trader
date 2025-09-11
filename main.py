@@ -5,6 +5,7 @@ Follows SOLID principles and clean architecture.
 """
 
 import sys
+import argparse
 from pathlib import Path
 
 # Add src to path
@@ -17,6 +18,20 @@ from src.utils import load_config, setup_logging
 
 def main():
     """Main entry point."""
+    parser = argparse.ArgumentParser(description='Enhanced Trading Bot - Quality over Quantity')
+    parser.add_argument(
+        '--continuous', 
+        action='store_true', 
+        help='Run in continuous mode with internal loop (legacy mode)'
+    )
+    parser.add_argument(
+        '--version', 
+        action='version', 
+        version='Trading Bot v2.0.0 - Enhanced Quality over Quantity'
+    )
+    
+    args = parser.parse_args()
+    
     try:
         # Load configuration
         config = load_config()
@@ -28,9 +43,16 @@ def main():
             log_file=log_file
         )
         
-        # Create and start trading bot
+        # Create trading bot
         bot = TradingBot(config)
-        bot.start()
+        
+        # Start bot in appropriate mode
+        if args.continuous:
+            print("🔄 Starting bot in CONTINUOUS mode (internal loop)")
+            bot.start_continuous()
+        else:
+            print("🎯 Starting bot in SCHEDULED mode (single execution)")
+            bot.start()
         
     except Exception as e:
         print(f"Failed to start trading bot: {e}")
