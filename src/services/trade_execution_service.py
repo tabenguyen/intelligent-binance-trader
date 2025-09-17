@@ -252,7 +252,17 @@ class BinanceTradeExecutor(ITradeExecutor):
         # Round prices to appropriate precision (do this once)
         stop_price = self._round_price(symbol, stop_price)
         limit_price = self._round_price(symbol, limit_price)
-        base_asset = symbol.replace('USDT', '').replace('BUSD', '').replace('BTC', '').replace('ETH', '')
+        
+        # Extract base asset correctly - check suffixes in order of specificity
+        base_asset = symbol
+        if symbol.endswith('USDT'):
+            base_asset = symbol[:-4]  # Remove 'USDT'
+        elif symbol.endswith('BUSD'):
+            base_asset = symbol[:-4]  # Remove 'BUSD'
+        elif symbol.endswith('BTC'):
+            base_asset = symbol[:-3]  # Remove 'BTC'
+        elif symbol.endswith('ETH'):
+            base_asset = symbol[:-3]  # Remove 'ETH'
         
         max_retries = 5
         current_balance = 0.0  # This will be reused across retries
