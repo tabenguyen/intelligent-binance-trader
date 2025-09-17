@@ -38,12 +38,19 @@ class EnhancedRiskManagementService(IRiskManager):
         Enhanced trade validation with quality focus.
         """
         try:
+            # Check if this is a special tight EMA stop protection case
+            is_tight_ema_stop = signal.indicators.get('tight_ema_stop_protection', False)
+            
             self.logger.info(f"🔍 ENHANCED RISK VALIDATION for {signal.symbol}")
             self.logger.info(f"   Signal Price: ${signal.price:.4f}")
             self.logger.info(f"   Current Balance: ${current_balance:.2f}")
             self.logger.info(f"   Signal Confidence: {signal.confidence:.1%}")
             self.logger.info(f"   Stop Loss: ${signal.stop_loss:.4f}" if signal.stop_loss else "   Stop Loss: Not set")
             self.logger.info(f"   Take Profit: ${signal.take_profit:.4f}" if signal.take_profit else "   Take Profit: Not set")
+            
+            if is_tight_ema_stop:
+                ema_26_value = signal.indicators.get('ema_26_value', 0)
+                self.logger.info(f"🛡️ SPECIAL CASE: Tight EMA stop protection active (EMA26: ${ema_26_value:.4f})")
             
             # Enhanced Check 1: Minimum balance (stricter)
             self.logger.info(f"📊 ENHANCED CHECK 1: Minimum Balance")
@@ -55,8 +62,8 @@ class EnhancedRiskManagementService(IRiskManager):
                 return False
             self.logger.info(f"✅ PASSED - Balance sufficient with buffer")
             
-            # Enhanced Check 2: Mandatory R:R Ratio Validation
-            if not self._validate_enhanced_risk_reward(signal):
+            # Enhanced Check 2: Mandatory R:R Ratio Validation (modified for tight stop case)
+            if not self._validate_enhanced_risk_reward(signal, is_tight_ema_stop):
                 return False
             
             # Enhanced Check 3: Signal Quality Assessment
@@ -105,7 +112,7 @@ class EnhancedRiskManagementService(IRiskManager):
             self.logger.error(f"❌ Error in enhanced trade validation: {e}")
             return False
     
-    def _validate_enhanced_risk_reward(self, signal: TradingSignal) -> bool:
+    def _validate_enhanced_risk_reward(self, signal: TradingSignal, is_tight_ema_stop: bool = False) -> bool:
         """Enhanced R:R ratio validation - mandatory minimum 1.5:1."""
         self.logger.info(f"📊 ENHANCED CHECK 2: Mandatory Risk:Reward Ratio")
         
@@ -129,15 +136,24 @@ class EnhancedRiskManagementService(IRiskManager):
         self.logger.info(f"   Stop Loss: ${signal.stop_loss:.4f} (Risk: ${risk:.4f})")
         self.logger.info(f"   Take Profit: ${signal.take_profit:.4f} (Reward: ${reward:.4f})")
         self.logger.info(f"   R:R Ratio: {risk_reward_ratio:.2f}:1")
-        self.logger.info(f"   Minimum Required: {self.min_risk_reward_ratio:.1f}:1")
         
-        if risk_reward_ratio < self.min_risk_reward_ratio:
-            self.logger.warning(f"❌ FAILED - R:R ratio {risk_reward_ratio:.2f}:1 below minimum {self.min_risk_reward_ratio:.1f}:1")
+        # For tight EMA stop cases, allow slightly lower R:R ratios due to the tight protection
+        min_required_ratio = self.min_risk_reward_ratio
+        if is_tight_ema_stop:
+            min_required_ratio = 1.2  # Allow 1.2:1 for tight EMA stop cases instead of 1.5:1
+            self.logger.info(f"🛡️ TIGHT EMA STOP: Reduced minimum R:R to {min_required_ratio:.1f}:1")
+        
+        self.logger.info(f"   Minimum Required: {min_required_ratio:.1f}:1")
+        
+        if risk_reward_ratio < min_required_ratio:
+            self.logger.warning(f"❌ FAILED - R:R ratio {risk_reward_ratio:.2f}:1 below minimum {min_required_ratio:.1f}:1")
             return False
         
         # Bonus points for excellent R:R ratio
         if risk_reward_ratio >= self.preferred_risk_reward_ratio:
             self.logger.info(f"✅ EXCELLENT - R:R ratio {risk_reward_ratio:.2f}:1 meets preferred target!")
+        elif is_tight_ema_stop:
+            self.logger.info(f"✅ TIGHT STOP APPROVED - R:R ratio {risk_reward_ratio:.2f}:1 with EMA protection")
         else:
             self.logger.info(f"✅ GOOD - R:R ratio {risk_reward_ratio:.2f}:1 meets minimum requirement")
         
@@ -261,17 +277,17 @@ class EnhancedRiskManagementService(IRiskManager):
         
         # Use configured risk percentage for portfolio limit
         max_portfolio_risk = self.config.risk_per_trade_percentage / 100.0
-        max_trade_value = balance * max_portfolio_risk
+        portfolio_risk_amount = balance * max_portfolio_risk
         
-        self.logger.info(f"   Portfolio Risk Limit: {max_portfolio_risk*100:.1f}% of balance")
-        self.logger.info(f"   Maximum Single Trade: ${max_trade_value:.2f}")
-        self.logger.info(f"   This Trade Value: ${trade_value:.2f}")
+        self.logger.info(f"   Trade Value: ${trade_value:.2f}")
+        self.logger.info(f"   Max Portfolio Risk: {max_portfolio_risk:.1%}")
+        self.logger.info(f"   Portfolio Risk Amount: ${portfolio_risk_amount:.2f}")
         
-        if trade_value > max_trade_value:
-            self.logger.warning(f"❌ FAILED - Trade exceeds portfolio risk limit")
+        if trade_value > portfolio_risk_amount:
+            self.logger.warning(f"❌ FAILED - Trade value exceeds portfolio risk limits")
             return False
         
-        self.logger.info(f"✅ PASSED - Trade within portfolio risk limits")
+        self.logger.info(f"✅ PASSED - Trade value within portfolio risk limits")
         return True
     
     def calculate_position_size(self, signal: TradingSignal, balance: float) -> float:
