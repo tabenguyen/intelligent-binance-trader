@@ -299,7 +299,7 @@ class TradingBot:
             # Lazy import to avoid tight coupling
             from .market_watcher import update_watchlist_from_top_movers
             self.logger.info("📝 Refreshing watchlist from top 24h USDT movers...")
-            top = update_watchlist_from_top_movers(limit=20)
+            top = update_watchlist_from_top_movers(limit=self.config.watchlist_top_movers_limit)
             symbols = top if top else self._read_watchlist_file()
             if symbols:
                 prev_count = len(self.config.symbols)
