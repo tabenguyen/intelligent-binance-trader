@@ -98,7 +98,10 @@ class PositionManagementService(IPositionManager):
                 entry_time=position.entry_time,
                 exit_time=datetime.now(),
                 status=TradeStatus.FILLED,
-                pnl=pnl
+                pnl=pnl,
+                stop_loss=position.stop_loss,
+                take_profit=position.take_profit,
+                strategy_name="EMA Cross Strategy"  # TODO: Get from position or strategy
             )
             
             # Remove from active positions
