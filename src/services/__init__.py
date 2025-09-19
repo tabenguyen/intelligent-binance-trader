@@ -8,7 +8,11 @@ from .trade_execution_service import BinanceTradeExecutor
 from .technical_analysis_service import TechnicalAnalysisService
 from .risk_management_service import RiskManagementService
 from .position_management_service import PositionManagementService
-from .notification_service import LoggingNotificationService
+from .notification_service import (
+    LoggingNotificationService, 
+    TelegramNotificationService, 
+    CompositeNotificationService
+)
 
 __all__ = [
     'BinanceMarketDataService',
@@ -16,5 +20,7 @@ __all__ = [
     'TechnicalAnalysisService', 
     'RiskManagementService',
     'PositionManagementService',
-    'LoggingNotificationService'
+    'LoggingNotificationService',
+    'TelegramNotificationService',
+    'CompositeNotificationService'
 ]

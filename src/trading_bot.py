@@ -17,7 +17,8 @@ from .market_watcher import check_symbol_tradeable
 from .services import (
     BinanceMarketDataService, BinanceTradeExecutor,
     TechnicalAnalysisService, RiskManagementService,
-    PositionManagementService, LoggingNotificationService
+    PositionManagementService, LoggingNotificationService,
+    TelegramNotificationService, CompositeNotificationService
 )
 from .services.enhanced_risk_management_service import EnhancedRiskManagementService
 from .strategies import EMACrossStrategy
@@ -66,7 +67,8 @@ class TradingBot:
             config.get_mode_specific_active_trades_file()
         )
         
-        self.notification_service: INotificationService = LoggingNotificationService()
+        # Initialize notification services
+        self.notification_service: INotificationService = self._initialize_notification_service()
         
         # Initialize strategies
         self.strategies: List[IStrategy] = self._initialize_strategies()
@@ -299,7 +301,7 @@ class TradingBot:
             # Lazy import to avoid tight coupling
             from .market_watcher import update_watchlist_from_top_movers
             self.logger.info("📝 Refreshing watchlist from top 24h USDT movers...")
-            top = update_watchlist_from_top_movers(limit=20)
+            top = update_watchlist_from_top_movers(limit=self.config.watchlist_top_movers_limit)
             symbols = top if top else self._read_watchlist_file()
             if symbols:
                 prev_count = len(self.config.symbols)
@@ -901,6 +903,40 @@ class TradingBot:
                     
         except Exception as e:
             self.logger.error(f"Error checking exit conditions for {position.symbol}: {e}")
+    
+    def _initialize_notification_service(self) -> INotificationService:
+        """Initialize notification services based on configuration."""
+        services = []
+        
+        # Always include logging notification service
+        logging_service = LoggingNotificationService()
+        services.append(logging_service)
+        self.logger.info("✅ Loaded Logging Notification Service")
+        
+        # Add Telegram service if configured
+        if (self.config.enable_telegram_notifications and 
+            self.config.telegram_bot_token and 
+            self.config.telegram_chat_id):
+            
+            try:
+                telegram_service = TelegramNotificationService(
+                    bot_token=self.config.telegram_bot_token,
+                    chat_id=self.config.telegram_chat_id,
+                    fallback_service=logging_service
+                )
+                services.append(telegram_service)
+                self.logger.info("✅ Loaded Telegram Notification Service")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Failed to initialize Telegram notifications: {e}")
+                self.logger.info("📝 Continuing with logging notifications only")
+        elif self.config.enable_telegram_notifications:
+            self.logger.warning("⚠️ Telegram notifications enabled but missing bot token or chat ID")
+        
+        # Return composite service if multiple services, otherwise single service
+        if len(services) > 1:
+            return CompositeNotificationService(services)
+        else:
+            return services[0]
     
     def _initialize_strategies(self) -> List[IStrategy]:
         """Initialize trading strategies with proper configuration."""

@@ -55,7 +55,7 @@ def load_strategy_configs() -> List[StrategyConfig]:
                 'rsi_lower_bound': get_env_int('RSI_LOWER', 45),
                 'rsi_upper_bound': get_env_int('RSI_UPPER', 75),
                 'ema_support_tolerance': get_env_float('EMA_TOLERANCE', 0.03),
-                'core_conditions_required': get_env_int('CORE_CONDITIONS_REQ', 1),
+                'core_conditions_required': get_env_int('CORE_CONDITIONS_REQ', 4),
                 'enable_daily_trend_filter': get_env_bool('ENABLE_DAILY_TREND', True),
                 'enable_atr_filter': get_env_bool('ENABLE_ATR', True),
                 'enable_volume_filter': get_env_bool('ENABLE_VOLUME', True),

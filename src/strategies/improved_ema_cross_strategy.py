@@ -108,7 +108,23 @@ class ImprovedEMACrossStrategy(BaseStrategy):
             
             # STEP 2: Core strategy conditions (need 3/4 instead of 1/4)
             core_signals = self._check_enhanced_core_conditions(market_data)
-            if not core_signals['passed']:
+            
+            # Special case: 3/4 core conditions pass but "Price very close to 26-EMA" fails
+            special_tight_stop_case = False
+            if core_signals['count'] == 3 and not core_signals['passed']:
+                # Check if specifically the 26-EMA proximity condition failed
+                ema_condition_failed = False
+                for condition_name, passed in core_signals['details']:
+                    if 'Price very close to 26-EMA' in condition_name and not passed:
+                        ema_condition_failed = True
+                        break
+                
+                if ema_condition_failed:
+                    special_tight_stop_case = True
+                    self.logger.info(f"[{market_data.symbol}] 🎯 SPECIAL CASE: 3/4 conditions pass, 26-EMA proximity failed")
+                    self.logger.info(f"[{market_data.symbol}] 🛡️ Will use extremely tight stop-loss below 26-EMA")
+            
+            if not core_signals['passed'] and not special_tight_stop_case:
                 self._log_failed_conditions(market_data.symbol, core_signals['details'])
                 return None
             
@@ -119,7 +135,10 @@ class ImprovedEMACrossStrategy(BaseStrategy):
                 return None
             
             # STEP 4: Calculate improved stop loss and take profit
-            stop_loss, take_profit = self._calculate_improved_risk_reward(market_data)
+            if special_tight_stop_case:
+                stop_loss, take_profit = self._calculate_improved_risk_reward(market_data, use_tight_ema_stop=True)
+            else:
+                stop_loss, take_profit = self._calculate_improved_risk_reward(market_data)
             
             # STEP 5: Validate Risk:Reward ratio
             if not self._validate_risk_reward_ratio(market_data.current_price, stop_loss, take_profit):
@@ -153,15 +172,27 @@ class ImprovedEMACrossStrategy(BaseStrategy):
                 core_conditions_count=core_signals['count']
             )
             
+            # Add special notation for tight stop case
+            if special_tight_stop_case:
+                signal.indicators['tight_ema_stop_protection'] = True
+                signal.indicators['ema_26_value'] = market_data.technical_analysis.indicators.get('26_EMA')
+            
             # Calculate actual R:R for logging (with safety check)
             risk = market_data.current_price - stop_loss
             reward = take_profit - market_data.current_price
             actual_rr = reward / risk if risk > 0 else 0
             
-            self.logger.info(
-                f"[{market_data.symbol}] 🎯 HIGH-QUALITY SIGNAL APPROVED! "
-                f"Core: {core_signals['count']}/4, Confidence: {confidence:.1%}, R:R: {actual_rr:.1f}:1"
-            )
+            if special_tight_stop_case:
+                self.logger.info(
+                    f"[{market_data.symbol}] 🛡️ SPECIAL TIGHT-STOP SIGNAL! "
+                    f"Core: {core_signals['count']}/4, Confidence: {confidence:.1%}, R:R: {actual_rr:.1f}:1, "
+                    f"EMA Protection Active"
+                )
+            else:
+                self.logger.info(
+                    f"[{market_data.symbol}] 🎯 HIGH-QUALITY SIGNAL APPROVED! "
+                    f"Core: {core_signals['count']}/4, Confidence: {confidence:.1%}, R:R: {actual_rr:.1f}:1"
+                )
             
             return signal
             
@@ -261,7 +292,7 @@ class ImprovedEMACrossStrategy(BaseStrategy):
         
         # Count passed conditions
         passed_count = sum(1 for _, passed in conditions if passed)
-        required_count = params.get('core_conditions_required', 3)
+        required_count = params.get('core_conditions_required', 4)  # Changed to 4 to enable special case
         
         return {
             'passed': passed_count >= required_count,
@@ -304,26 +335,49 @@ class ImprovedEMACrossStrategy(BaseStrategy):
             'required': total_required
         }
     
-    def _calculate_improved_risk_reward(self, market_data: MarketData) -> tuple:
+    def _calculate_improved_risk_reward(self, market_data: MarketData, use_tight_ema_stop: bool = False) -> tuple:
         """Calculate improved stop loss and take profit with optimal R:R ratio."""
         current_price = market_data.current_price
         atr = market_data.technical_analysis.indicators.get('ATR', current_price * 0.02)
         params = self.config.parameters
         
-        # Stop loss: 1.5x ATR below current price (conservative)
-        stop_loss_multiplier = params.get('stop_loss_atr_multiplier', 1.5)
-        stop_loss = current_price - (stop_loss_multiplier * atr)
+        if use_tight_ema_stop:
+            # Special case: Extremely tight stop-loss just below 26-EMA
+            ema_26 = market_data.technical_analysis.indicators.get('26_EMA', current_price * 0.98)
+            
+            # Set stop-loss 0.5% below 26-EMA (extremely tight protection)
+            tight_buffer = 0.005  # 0.5% buffer below 26-EMA
+            stop_loss = ema_26 * (1 - tight_buffer)
+            
+            # Ensure stop-loss is not too close to current price (minimum 1% risk)
+            min_stop_distance = current_price * 0.01  # 1% minimum
+            if current_price - stop_loss < min_stop_distance:
+                stop_loss = current_price - min_stop_distance
+            
+            # Take profit: Maintain good R:R ratio despite tight stop
+            risk = current_price - stop_loss
+            # Target 2:1 R:R ratio minimum for tight stop scenarios
+            take_profit = current_price + (risk * 2.5)  # 2.5:1 R:R
+            
+            self.logger.info(f"[{market_data.symbol}] 🛡️ TIGHT EMA STOP: SL=${stop_loss:.4f} (EMA26=${ema_26:.4f})")
+            
+        else:
+            # Normal stop loss: 1.5x ATR below current price (conservative)
+            stop_loss_multiplier = params.get('stop_loss_atr_multiplier', 1.5)
+            stop_loss = current_price - (stop_loss_multiplier * atr)
+            
+            # Take profit: 3x ATR above current price (target 2:1 R:R)
+            take_profit_multiplier = params.get('take_profit_atr_multiplier', 3.0)
+            take_profit = current_price + (take_profit_multiplier * atr)
         
-        # Take profit: 3x ATR above current price (target 2:1 R:R)
-        take_profit_multiplier = params.get('take_profit_atr_multiplier', 3.0)
-        take_profit = current_price + (take_profit_multiplier * atr)
-        
-        # Ensure minimum 5% stop loss and 10% take profit
-        min_stop_loss = current_price * 0.95
-        min_take_profit = current_price * 1.10
-        
-        stop_loss = min(stop_loss, min_stop_loss)  # Not too close
-        take_profit = max(take_profit, min_take_profit)  # Not too close
+        # Ensure minimum safety margins for normal cases
+        if not use_tight_ema_stop:
+            # Ensure minimum 5% stop loss and 10% take profit for normal cases
+            min_stop_loss = current_price * 0.95
+            min_take_profit = current_price * 1.10
+            
+            stop_loss = min(stop_loss, min_stop_loss)  # Not too close
+            take_profit = max(take_profit, min_take_profit)  # Not too close
         
         return stop_loss, take_profit
     
