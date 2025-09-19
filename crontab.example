@@ -1,0 +1,55 @@
+# Trading Bot Crontab Configuration
+# This file shows example crontab entries for the trading bot
+# 
+# To install:
+# 1. Edit this file with your actual paths
+# 2. Run: crontab -e
+# 3. Copy the desired lines below into your crontab
+# 
+# Note: Make sure to use absolute paths in crontab
+
+# Position updates every 5 minutes (recommended)
+# This monitors existing positions and executes exits
+*/5 * * * * /home/tam/Workspaces/trading-bot-ai/position_update.sh
+
+# Alternative: Position updates every 2 minutes (for high-frequency monitoring)
+# */2 * * * * /home/tam/Workspaces/trading-bot-ai/position_update.sh
+
+# Main trading bot every 4 hours (signal scanning and new trades)
+# This scans for new opportunities and places new trades
+0 */4 * * * cd /home/tam/Workspaces/trading-bot-ai && uv run python main.py >> logs/main_bot.log 2>&1
+
+# Alternative schedules for main bot:
+
+# Every 6 hours
+# 0 */6 * * * cd /home/tam/Workspaces/trading-bot-ai && uv run python main.py >> logs/main_bot.log 2>&1
+
+# Twice daily (at 9 AM and 9 PM)
+# 0 9,21 * * * cd /home/tam/Workspaces/trading-bot-ai && uv run python main.py >> logs/main_bot.log 2>&1
+
+# Daily at 10 AM
+# 0 10 * * * cd /home/tam/Workspaces/trading-bot-ai && uv run python main.py >> logs/main_bot.log 2>&1
+
+# Log rotation (weekly on Sunday at 3 AM)
+# This prevents log files from growing too large
+0 3 * * 0 cd /home/tam/Workspaces/trading-bot-ai && find logs -name "*.log" -size +10M -exec sh -c 'tail -1000 "$1" > "$1.tmp" && mv "$1.tmp" "$1"' _ {} \;
+
+# Cleanup old backup files (monthly on 1st at 2 AM)
+0 2 1 * * cd /home/tam/Workspaces/trading-bot-ai && find logs -name "*.tmp" -mtime +7 -delete
+
+# Health check (optional) - check if trading bot processes are running
+# */30 * * * * ps aux | grep -v grep | grep "python.*main.py" > /dev/null || echo "$(date): Trading bot not running" >> /home/tam/Workspaces/trading-bot-ai/logs/health.log
+
+# Example Environment Variables for Crontab
+# Add these lines at the top of your crontab if needed:
+# PATH=/usr/local/bin:/usr/bin:/bin
+# SHELL=/bin/bash
+
+# To view current crontab:
+# crontab -l
+
+# To edit crontab:
+# crontab -e
+
+# To remove all crontab entries:
+# crontab -r

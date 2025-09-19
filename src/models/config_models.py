@@ -58,6 +58,7 @@ class TradingConfig:
     enable_atr_filter: bool = True
     enable_volume_filter: bool = True
     enable_advanced_exits: bool = False
+    position_only_mode: bool = False  # If True, only update existing positions (for cronjob)
     
     # Trading Execution
     order_type: str = "market"  # "market" or "limit"
@@ -142,6 +143,9 @@ class TradingConfig:
             max_limit_order_retries=get_env_int("MAX_LIMIT_ORDER_RETRIES", 5),
             limit_order_retry_delay=get_env_int("LIMIT_ORDER_RETRY_DELAY", 30),
             enable_oco_orders=get_env_bool("ENABLE_OCO_ORDERS", True),
+            
+            # Feature flags
+            position_only_mode=get_env_bool("POSITION_ONLY_MODE", False),
             
             # Watchlist Management
             watchlist_top_movers_limit=get_env_int("WATCHLIST_TOP_MOVERS_LIMIT", 20),

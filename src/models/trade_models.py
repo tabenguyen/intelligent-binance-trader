@@ -87,11 +87,27 @@ class Trade:
     pnl: Optional[float] = None
     commission: Optional[float] = None
     strategy_name: Optional[str] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
     
     @property
     def is_profitable(self) -> bool:
         """Check if the trade is profitable."""
         return self.pnl is not None and self.pnl > 0
+    
+    @property
+    def stop_loss_percentage(self) -> Optional[float]:
+        """Calculate stop loss percentage from entry price."""
+        if self.stop_loss and self.entry_price:
+            return ((self.stop_loss - self.entry_price) / self.entry_price) * 100
+        return None
+    
+    @property
+    def take_profit_percentage(self) -> Optional[float]:
+        """Calculate take profit percentage from entry price."""
+        if self.take_profit and self.entry_price:
+            return ((self.take_profit - self.entry_price) / self.entry_price) * 100
+        return None
 
 
 @dataclass

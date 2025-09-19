@@ -32,10 +32,6 @@ class TelegramNotificationService(INotificationService):
         self.fallback = fallback_service or LoggingNotificationService()
         self.api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         
-        # Test connection on initialization
-        if bot_token and chat_id:
-            self._test_connection()
-    
     def _test_connection(self) -> bool:
         """Test Telegram connection."""
         try:
@@ -73,7 +69,16 @@ class TelegramNotificationService(INotificationService):
             
         except requests.exceptions.RequestException as e:
             if not silent:
-                self.logger.error(f"Failed to send Telegram message: {e}")
+                # Get more detailed error information
+                error_detail = ""
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        error_json = e.response.json()
+                        error_detail = f" - {error_json.get('description', 'Unknown error')}"
+                    except:
+                        error_detail = f" - Response: {e.response.text[:200]}"
+                
+                self.logger.error(f"Failed to send Telegram message: {e}{error_detail}")
             return False
         except Exception as e:
             if not silent:
@@ -86,16 +91,50 @@ class TelegramNotificationService(INotificationService):
             pnl_emoji = "📈" if trade.is_profitable else "📉"
             status_emoji = self._get_status_emoji(trade.status)
             
+            # Calculate trade value (quantity × entry price)
+            trade_value = trade.quantity * trade.entry_price
+            
+            # Calculate percentage changes for stop loss and take profit
+            entry_price = trade.entry_price
+            exit_price = trade.exit_price or 0
+            
+            # Calculate percentage change from entry to exit
+            price_change_pct = ((exit_price - entry_price) / entry_price) * 100 if exit_price > 0 else 0
+            
+            # Format timestamps
+            entry_time_str = trade.entry_time.strftime("%Y-%m-%d %H:%M:%S UTC") if trade.entry_time else "N/A"
+            exit_time_str = trade.exit_time.strftime("%Y-%m-%d %H:%M:%S UTC") if trade.exit_time else "N/A"
+            
             # Format message with HTML markup for Telegram
             message = (
                 f"{status_emoji} <b>Trade Completed: {trade.symbol}</b>\n"
                 f"📊 Direction: <code>{trade.direction.value}</code>\n"
                 f"🔢 Quantity: <code>{trade.quantity:.6f}</code>\n"
+                f"💰 Trade Value: <code>${trade_value:.2f}</code>\n"
                 f"📈 Entry: <code>${trade.entry_price:.4f}</code>\n"
-                f"📉 Exit: <code>${trade.exit_price:.4f}</code>\n"
-                f"{pnl_emoji} <b>P&L: ${trade.pnl:.2f}</b>\n"
-                f"⏱ Duration: <code>{self._calculate_duration(trade)}</code>"
+                f"📉 Exit: <code>${exit_price:.4f}</code> <code>({price_change_pct:+.2f}%)</code>\n"
             )
+            
+            # Add stop loss and take profit information if available
+            if trade.stop_loss:
+                sl_pct = trade.stop_loss_percentage or 0
+                message += f"🛑 Stop Loss: <code>${trade.stop_loss:.4f}</code> <code>({sl_pct:+.2f}%)</code>\n"
+            
+            if trade.take_profit:
+                tp_pct = trade.take_profit_percentage or 0
+                message += f"🎯 Take Profit: <code>${trade.take_profit:.4f}</code> <code>({tp_pct:+.2f}%)</code>\n"
+            
+            # Add P&L and timing information
+            message += (
+                f"{pnl_emoji} <b>P&L: ${trade.pnl:.2f}</b>\n"
+                f"⏱ Duration: <code>{self._calculate_duration(trade)}</code>\n"
+                f"📅 Entry Time: <code>{entry_time_str}</code>\n"
+                f"🏁 Exit Time: <code>{exit_time_str}</code>"
+            )
+            
+            # Add strategy information if available
+            if trade.strategy_name:
+                message += f"\n🎯 Strategy: <code>{trade.strategy_name}</code>"
             
             success = self._send_message(message)
             
@@ -281,15 +320,44 @@ class LoggingNotificationService(INotificationService):
             pnl_emoji = "📈" if trade.is_profitable else "📉"
             status_emoji = self._get_status_emoji(trade.status)
             
+            # Calculate trade value and percentage changes
+            trade_value = trade.quantity * trade.entry_price
+            exit_price = trade.exit_price or 0
+            price_change_pct = ((exit_price - trade.entry_price) / trade.entry_price) * 100 if exit_price > 0 else 0
+            
+            # Format timestamps
+            entry_time_str = trade.entry_time.strftime("%Y-%m-%d %H:%M:%S UTC") if trade.entry_time else "N/A"
+            exit_time_str = trade.exit_time.strftime("%Y-%m-%d %H:%M:%S UTC") if trade.exit_time else "N/A"
+            
             message = (
                 f"{status_emoji} Trade Completed: {trade.symbol}\n"
                 f"Direction: {trade.direction.value}\n"
                 f"Quantity: {trade.quantity:.6f}\n"
-                f"Entry: ${trade.entry_price:.2f}\n"
-                f"Exit: ${trade.exit_price:.2f}\n"
-                f"{pnl_emoji} P&L: ${trade.pnl:.2f}\n"
-                f"Duration: {self._calculate_duration(trade)}"
+                f"Trade Value: ${trade_value:.2f}\n"
+                f"Entry: ${trade.entry_price:.4f}\n"
+                f"Exit: ${exit_price:.4f} ({price_change_pct:+.2f}%)\n"
             )
+            
+            # Add stop loss and take profit information if available
+            if trade.stop_loss:
+                sl_pct = trade.stop_loss_percentage or 0
+                message += f"Stop Loss: ${trade.stop_loss:.4f} ({sl_pct:+.2f}%)\n"
+            
+            if trade.take_profit:
+                tp_pct = trade.take_profit_percentage or 0
+                message += f"Take Profit: ${trade.take_profit:.4f} ({tp_pct:+.2f}%)\n"
+            
+            # Add P&L and timing information
+            message += (
+                f"{pnl_emoji} P&L: ${trade.pnl:.2f}\n"
+                f"Duration: {self._calculate_duration(trade)}\n"
+                f"Entry Time: {entry_time_str}\n"
+                f"Exit Time: {exit_time_str}"
+            )
+            
+            # Add strategy information if available
+            if trade.strategy_name:
+                message += f"\nStrategy: {trade.strategy_name}"
             
             if trade.is_profitable:
                 self.logger.info(f"🎉 PROFITABLE TRADE: {message}")
