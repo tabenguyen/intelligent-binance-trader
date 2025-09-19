@@ -25,6 +25,11 @@ def main():
         help='Run in continuous mode with internal loop (legacy mode)'
     )
     parser.add_argument(
+        '--positions-only', 
+        action='store_true', 
+        help='Run in position-only mode (only update existing positions)'
+    )
+    parser.add_argument(
         '--version', 
         action='version', 
         version='Trading Bot v2.0.0 - Enhanced Quality over Quantity'
@@ -35,6 +40,10 @@ def main():
     try:
         # Load configuration
         config = load_config()
+        
+        # Override position-only mode if specified via command line
+        if args.positions_only:
+            config.position_only_mode = True
         
         # Setup logging with mode-specific log file
         log_file = config.log_file or config.get_mode_specific_log_file()
@@ -47,7 +56,10 @@ def main():
         bot = TradingBot(config)
         
         # Start bot in appropriate mode
-        if args.continuous:
+        if args.positions_only:
+            print("🔄 Starting bot in POSITIONS-ONLY mode (position updates only)")
+            bot.start_position_update_only()
+        elif args.continuous:
             print("🔄 Starting bot in CONTINUOUS mode (internal loop)")
             bot.start_continuous()
         else:

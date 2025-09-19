@@ -75,6 +75,31 @@ class TradingBot:
         
         self.logger.info(f"Trading Bot initialized with {len(self.strategies)} strategies")
     
+    def start_position_update_only(self) -> None:
+        """Start the trading bot in position-only mode - only updates existing positions."""
+        try:
+            self.logger.info("=" * 80)
+            self.logger.info("🔄 STARTING TRADING BOT - POSITION UPDATE ONLY MODE")
+            self.logger.info("=" * 80)
+            
+            # Validate configuration (basic validation only)
+            self._validate_configuration_minimal()
+            
+            # Execute position update cycle only
+            self._execute_position_update_cycle()
+            
+        except KeyboardInterrupt:
+            self.logger.info("=" * 80)
+            self.logger.info("🛑 POSITION UPDATE STOPPED BY USER")
+            self.logger.info("=" * 80)
+        except Exception as e:
+            self.logger.error("=" * 80)
+            self.logger.error(f"❌ POSITION UPDATE ERROR: {e}")
+            self.logger.error("=" * 80)
+            self.notification_service.send_error_notification(str(e))
+        finally:
+            self.stop()
+    
     def start(self) -> None:
         """Start the trading bot for a single execution cycle."""
         try:
@@ -133,6 +158,31 @@ class TradingBot:
         self.logger.info("=" * 80)
         self.running = False
     
+    def _execute_position_update_cycle(self) -> None:
+        """Execute a position-only update cycle for scheduled execution."""
+        try:
+            self.logger.info("=" * 60)
+            self.logger.info("🔄 STARTING POSITION UPDATE CYCLE")
+            self.logger.info("=" * 60)
+            start_time = time.time()
+            
+            # Only update existing positions
+            self._position_update_only()
+            
+            cycle_duration = time.time() - start_time
+            self.logger.info("-" * 60)
+            self.logger.info(f"⏱️  POSITION UPDATE COMPLETED in {cycle_duration:.2f}s")
+            self.logger.info("-" * 60)
+            self.logger.info("🏁 Position update completed - exiting for scheduler control")
+            self.logger.info("=" * 60)
+            
+        except Exception as e:
+            self.logger.error("!" * 60)
+            self.logger.error(f"❌ ERROR IN POSITION UPDATE CYCLE: {e}")
+            self.logger.error("!" * 60)
+            self.notification_service.send_error_notification(str(e))
+            raise  # Re-raise to let scheduler handle the error
+
     def _execute_single_cycle(self) -> None:
         """Execute a single trading cycle for scheduled execution."""
         try:
@@ -190,8 +240,26 @@ class TradingBot:
                 self.logger.info("💤 Waiting 60s before retrying after error...")
                 time.sleep(60)  # Wait before retrying
     
+    def _position_update_only(self) -> None:
+        """Execute position updates only - no new signal scanning or trading."""
+        
+        # Update existing positions only
+        self.logger.info("🔄 POSITION UPDATE ONLY MODE")
+        self.logger.info("-" * 40)
+        active_positions = self.position_manager.get_positions()
+        if active_positions:
+            self.logger.info(f"📊 Found {len(active_positions)} active positions to update")
+            self._update_positions()
+        else:
+            self.logger.info("📊 No active positions to update")
+
     def _trading_cycle(self) -> None:
         """Execute one trading cycle."""
+        
+        # Check if we're in position-only mode
+        if self.config.position_only_mode:
+            self._position_update_only()
+            return
         
         # STEP 1: Refresh watchlist
         self.logger.info("🔹 STEP 1: REFRESHING WATCHLIST")
@@ -961,6 +1029,21 @@ class TradingBot:
         # Add more strategies here as needed
         
         return strategies
+    
+    def _validate_configuration_minimal(self) -> None:
+        """Minimal configuration validation for position-only mode."""
+        self.logger.info("🔍" + "-" * 30)
+        self.logger.info("🔍 VALIDATING CONFIGURATION (MINIMAL)")
+        self.logger.info("🔍" + "-" * 30)
+        
+        if not self.config.api_key or not self.config.api_secret:
+            self.logger.error("❌ API keys are missing!")
+            raise ValueError("API keys are required")
+        
+        self.logger.info("✅ Minimal configuration validated successfully")
+        self.logger.info(f"   🔑 API Keys: Configured")
+        self.logger.info(f"   🏦 Testnet Mode: {'Enabled' if self.config.testnet else 'Disabled'}")
+        self.logger.info(f"   🔄 Mode: Position Update Only")
     
     def _validate_configuration(self) -> None:
         """Validate trading configuration."""
