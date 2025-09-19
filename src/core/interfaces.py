@@ -170,3 +170,7 @@ class INotificationService(ABC):
     def send_error_notification(self, error: str) -> None:
         """Send error notification."""
         pass
+    
+    def send_system_notification(self, message: str, level: str = "INFO") -> None:
+        """Send system notification. Optional method with default implementation."""
+        pass

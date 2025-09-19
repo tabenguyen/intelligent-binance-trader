@@ -77,6 +77,11 @@ class TradingConfig:
     # Watchlist Management
     watchlist_top_movers_limit: int = 20  # Number of top movers to include in watchlist
     
+    # Telegram Notifications
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    enable_telegram_notifications: bool = False
+    
     def get_mode_specific_watchlist_file(self) -> str:
         """Get watchlist file path based on trading mode."""
         if self.testnet:
@@ -139,5 +144,10 @@ class TradingConfig:
             enable_oco_orders=get_env_bool("ENABLE_OCO_ORDERS", True),
             
             # Watchlist Management
-            watchlist_top_movers_limit=get_env_int("WATCHLIST_TOP_MOVERS_LIMIT", 20)
+            watchlist_top_movers_limit=get_env_int("WATCHLIST_TOP_MOVERS_LIMIT", 20),
+            
+            # Telegram Notifications
+            telegram_bot_token=get_env("TELEGRAM_BOT_TOKEN"),
+            telegram_chat_id=get_env("TELEGRAM_CHAT_ID"),
+            enable_telegram_notifications=get_env_bool("ENABLE_TELEGRAM_NOTIFICATIONS", False)
         )
