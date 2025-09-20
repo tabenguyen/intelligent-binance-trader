@@ -134,10 +134,11 @@ def check_symbol_tradeable(symbol: str) -> bool:
 		return False
 
 
-def update_watchlist_from_top_movers(limit: int = 20) -> Optional[List[str]]:
+def update_watchlist_from_top_movers(limit: int = 20, config: Optional['TradingConfig'] = None) -> Optional[List[str]]:
 	"""Helper to load config, fetch top movers, and update watchlist file."""
 	try:
-		config = TradingConfig.from_env()
+		if config is None:
+			config = TradingConfig.from_env()
 		# Force USDT quote pairs as requested
 		watcher = MarketWatcher(config.api_key, config.api_secret, config.testnet, quote="USDT")
 		top = watcher.get_top_movers(limit=limit)

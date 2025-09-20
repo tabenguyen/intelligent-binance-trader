@@ -5,7 +5,7 @@ Notification Service - Single Responsibility: Handle notifications.
 import logging
 import requests
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from ..core.interfaces import INotificationService
 from ..models import Trade, TradingSignal
@@ -430,6 +430,255 @@ class LoggingNotificationService(INotificationService):
             "DEBUG": "🔍"
         }
         return level_emojis.get(level.upper(), "📋")
+    
+    def _calculate_duration(self, trade: Trade) -> str:
+        """Calculate trade duration."""
+        try:
+            if not trade.exit_time:
+                return "N/A"
+            
+            duration = trade.exit_time - trade.entry_time
+            hours = duration.total_seconds() / 3600
+            
+            if hours < 1:
+                minutes = duration.total_seconds() / 60
+                return f"{minutes:.0f}m"
+            elif hours < 24:
+                return f"{hours:.1f}h"
+            else:
+                days = hours / 24
+                return f"{days:.1f}d"
+                
+        except Exception:
+            return "N/A"
+
+
+class TwitterNotificationService(INotificationService):
+    """
+    Twitter-based notification service.
+    Posts trading signals as tweets and replies with trade completion.
+    """
+    
+    def __init__(self, bearer_token: str, api_key: str, api_secret: str, 
+                 access_token: str, access_token_secret: str, 
+                 fallback_service: Optional[INotificationService] = None):
+        """
+        Initialize Twitter notification service.
+        
+        Args:
+            bearer_token: Twitter API Bearer Token
+            api_key: Twitter API Key
+            api_secret: Twitter API Secret
+            access_token: Twitter Access Token
+            access_token_secret: Twitter Access Token Secret
+            fallback_service: Optional fallback notification service if Twitter fails
+        """
+        self.bearer_token = bearer_token
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.access_token = access_token
+        self.access_token_secret = access_token_secret
+        self.logger = logging.getLogger(__name__)
+        self.fallback = fallback_service or LoggingNotificationService()
+        
+        # Store signal tweet IDs for later replies
+        self.signal_tweets: Dict[str, str] = {}  # symbol -> tweet_id mapping
+        
+        # Test connection on initialization
+        if all([bearer_token, api_key, api_secret, access_token, access_token_secret]):
+            self._test_connection()
+    
+    def _test_connection(self) -> bool:
+        """Test Twitter API connection."""
+        try:
+            # Simple test to verify credentials work
+            headers = {
+                'Authorization': f'Bearer {self.bearer_token}',
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.get('https://api.twitter.com/2/users/me', headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                user_data = response.json()
+                username = user_data.get('data', {}).get('username', 'Unknown')
+                self.logger.info(f"✅ Twitter API connected as @{username}")
+                return True
+            else:
+                self.logger.warning(f"Twitter API test failed: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            self.logger.warning(f"Twitter connection test failed: {e}")
+            return False
+    
+    def _post_tweet(self, message: str, reply_to_tweet_id: Optional[str] = None) -> Optional[str]:
+        """
+        Post a tweet to Twitter.
+        
+        Args:
+            message: Tweet content
+            reply_to_tweet_id: Optional tweet ID to reply to
+            
+        Returns:
+            Tweet ID if successful, None otherwise
+        """
+        try:
+            # Twitter API v2 endpoint for posting tweets
+            url = 'https://api.twitter.com/2/tweets'
+            
+            headers = {
+                'Authorization': f'Bearer {self.bearer_token}',
+                'Content-Type': 'application/json'
+            }
+            
+            payload = {
+                'text': message
+            }
+            
+            # Add reply information if replying to another tweet
+            if reply_to_tweet_id:
+                payload['reply'] = {
+                    'in_reply_to_tweet_id': reply_to_tweet_id
+                }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            
+            if response.status_code == 201:
+                tweet_data = response.json()
+                tweet_id = tweet_data.get('data', {}).get('id')
+                
+                if reply_to_tweet_id:
+                    self.logger.info(f"✅ Twitter reply posted successfully (ID: {tweet_id})")
+                else:
+                    self.logger.info(f"✅ Twitter signal posted successfully (ID: {tweet_id})")
+                
+                return tweet_id
+            else:
+                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
+                self.logger.error(f"Failed to post tweet: {response.status_code} - {error_data}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error posting tweet: {e}")
+            return None
+    
+    def send_signal_notification(self, signal: TradingSignal) -> None:
+        """Send notification for a trading signal as a Twitter post."""
+        try:
+            direction_emoji = "🟢" if signal.direction.value == "BUY" else "🔴"
+            
+            # Format message for Twitter (280 character limit)
+            message = (
+                f"{direction_emoji} TRADING SIGNAL: #{signal.symbol}\n"
+                f"📊 {signal.direction.value} @ ${signal.price:.4f}\n"
+                f"🎯 Strategy: {signal.strategy_name}\n"
+                f"🎲 Confidence: {signal.confidence:.1%}\n"
+            )
+            
+            # Add stop loss and take profit if available
+            if signal.stop_loss:
+                message += f"🛑 SL: ${signal.stop_loss:.4f}\n"
+            if signal.take_profit:
+                message += f"🎯 TP: ${signal.take_profit:.4f}\n"
+            
+            # Add hashtags
+            message += f"\n#TradingBot #Crypto #{signal.symbol.replace('USDT', '')} #TechnicalAnalysis"
+            
+            # Post the signal tweet
+            tweet_id = self._post_tweet(message)
+            
+            if tweet_id:
+                # Store the tweet ID for later reply when trade completes
+                self.signal_tweets[signal.symbol] = tweet_id
+                self.logger.info(f"📡 Signal tweet posted for {signal.symbol}: {tweet_id}")
+            else:
+                # Fallback to logging if Twitter fails
+                self.fallback.send_signal_notification(signal)
+                
+        except Exception as e:
+            self.logger.error(f"Error sending Twitter signal notification: {e}")
+            self.fallback.send_signal_notification(signal)
+    
+    def send_trade_notification(self, trade: Trade) -> None:
+        """Send notification for a completed trade as a Twitter reply."""
+        try:
+            pnl_emoji = "📈" if trade.is_profitable else "📉"
+            status_emoji = "✅" if trade.is_profitable else "❌"
+            
+            # Calculate trade value and percentage change
+            trade_value = trade.quantity * trade.entry_price
+            exit_price = trade.exit_price or 0
+            price_change_pct = ((exit_price - trade.entry_price) / trade.entry_price) * 100 if exit_price > 0 else 0
+            
+            # Format message for Twitter reply
+            message = (
+                f"{status_emoji} TRADE COMPLETED: #{trade.symbol}\n"
+                f"💰 Value: ${trade_value:.0f}\n"
+                f"📈 Entry: ${trade.entry_price:.4f}\n"
+                f"📉 Exit: ${exit_price:.4f} ({price_change_pct:+.1f}%)\n"
+                f"{pnl_emoji} P&L: ${trade.pnl:.2f}\n"
+                f"⏱ Duration: {self._calculate_duration(trade)}"
+            )
+            
+            # Try to reply to the original signal tweet
+            original_tweet_id = self.signal_tweets.get(trade.symbol)
+            
+            if original_tweet_id:
+                reply_tweet_id = self._post_tweet(message, reply_to_tweet_id=original_tweet_id)
+                if reply_tweet_id:
+                    self.logger.info(f"📱 Trade completion reply posted for {trade.symbol}")
+                    # Clean up the stored tweet ID
+                    del self.signal_tweets[trade.symbol]
+                else:
+                    # Fallback to logging if reply fails
+                    self.fallback.send_trade_notification(trade)
+            else:
+                # No original signal tweet found, just post as regular tweet
+                tweet_id = self._post_tweet(message)
+                if not tweet_id:
+                    self.fallback.send_trade_notification(trade)
+                
+        except Exception as e:
+            self.logger.error(f"Error sending Twitter trade notification: {e}")
+            self.fallback.send_trade_notification(trade)
+    
+    def send_error_notification(self, error: str) -> None:
+        """Send error notification."""
+        try:
+            message = f"🚨 TRADING BOT ERROR\n{error[:200]}..."  # Truncate for Twitter
+            tweet_id = self._post_tweet(message)
+            
+            # Always also log errors
+            if not tweet_id:
+                self.fallback.send_error_notification(error)
+                
+        except Exception as e:
+            self.logger.error(f"Error sending Twitter error notification: {e}")
+            self.fallback.send_error_notification(error)
+    
+    def send_system_notification(self, message: str, level: str = "INFO") -> None:
+        """Send system notification."""
+        try:
+            # Only post important system notifications to Twitter
+            if level in ["ERROR", "WARNING"]:
+                emoji = "🚨" if level == "ERROR" else "⚠️"
+                tweet_message = f"{emoji} SYSTEM: {message[:200]}..."  # Truncate for Twitter
+                
+                tweet_id = self._post_tweet(tweet_message)
+                
+                # Fallback to logging if Twitter fails
+                if not tweet_id and hasattr(self.fallback, 'send_system_notification'):
+                    self.fallback.send_system_notification(message, level)
+            else:
+                # For INFO and DEBUG, just use fallback
+                if hasattr(self.fallback, 'send_system_notification'):
+                    self.fallback.send_system_notification(message, level)
+                
+        except Exception as e:
+            self.logger.error(f"Error sending Twitter system notification: {e}")
+            if hasattr(self.fallback, 'send_system_notification'):
+                self.fallback.send_system_notification(message, level)
     
     def _calculate_duration(self, trade: Trade) -> str:
         """Calculate trade duration."""
