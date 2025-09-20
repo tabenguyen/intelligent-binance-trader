@@ -4,8 +4,8 @@ simulate_bot.py - Main entry point for the simulated trading bot.
 
 This bot operates differently from the main trading bot:
 - Uses simulated balance instead of real account
-- Posts trading signals to Twitter
-- Replies to signal tweets when trades complete
+- Posts trading signals to Telegram signal group
+- Sends completion notifications when trades finish
 - Never executes real trades
 """
 
@@ -36,9 +36,6 @@ def simulate_bot(run_once: bool = False) -> None:
         # Load environment variables
         load_environment()
         
-        # Setup logging
-        setup_logging()
-        
         # Load configuration
         config = TradingConfig.from_env()
         
@@ -46,6 +43,11 @@ def simulate_bot(run_once: bool = False) -> None:
         if not config.simulation_mode:
             print("⚠️ SIMULATION_MODE is not enabled in .env file. Setting simulation_mode=True for this run.")
             config.simulation_mode = True
+        
+        # Setup logging with simulation-specific log file
+        simulation_log_file = config.get_mode_specific_log_file()
+        setup_logging(level=config.log_level, log_file=simulation_log_file)
+        print(f"📝 Logging to: {simulation_log_file}")
         
         # Validate required configuration
         if not config.api_key or not config.api_secret:
@@ -58,7 +60,7 @@ def simulate_bot(run_once: bool = False) -> None:
         print(f"   Simulation Balance: ${config.simulation_balance:,.2f}")
         print(f"   Trading Symbols: {len(config.symbols)} symbols")
         print(f"   Trade Amount: ${config.trade_amount:.2f}")
-        print(f"   Twitter Notifications: {'✅ Enabled' if config.enable_twitter_notifications else '❌ Disabled'}")
+        print(f"   Telegram Notifications: {'✅ Enabled' if config.enable_telegram_notifications else '❌ Disabled'}")
         print(f"   Testnet Mode: {'✅ Enabled' if config.testnet else '❌ Disabled'}")
         
         # Initialize the simulated trading bot
@@ -97,7 +99,7 @@ def simulate_bot(run_once: bool = False) -> None:
 def main():
     """Main entry point with command line argument parsing."""
     parser = argparse.ArgumentParser(
-        description="Simulated Trading Bot - Trade with virtual balance and Twitter notifications",
+        description="Simulated Trading Bot - Trade with virtual balance and Telegram notifications",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -109,12 +111,10 @@ Environment Variables Required:
   SIMULATION_MODE=true        # Enable simulation mode
   SIMULATION_BALANCE=10000.0  # Starting virtual balance
   
-  # Twitter API (optional)
-  TWITTER_BEARER_TOKEN=...
-  TWITTER_API_KEY=...
-  TWITTER_API_SECRET=...
-  TWITTER_ACCESS_TOKEN=...
-  TWITTER_ACCESS_TOKEN_SECRET=...
+  # Telegram Notifications
+  TELEGRAM_BOT_TOKEN=...
+  TELEGRAM_SIGNAL_GROUP_ID=...
+  ENABLE_TELEGRAM_NOTIFICATIONS=true
   
   # Binance API (for market data only)
   BINANCE_API_KEY=...

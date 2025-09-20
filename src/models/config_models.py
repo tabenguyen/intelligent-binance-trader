@@ -81,37 +81,37 @@ class TradingConfig:
     # Telegram Notifications
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
+    telegram_signal_group_id: Optional[str] = None
     enable_telegram_notifications: bool = False
-    
-    # Twitter Notifications (for simulation mode)
-    twitter_bearer_token: Optional[str] = None
-    twitter_api_key: Optional[str] = None
-    twitter_api_secret: Optional[str] = None
-    twitter_access_token: Optional[str] = None
-    twitter_access_token_secret: Optional[str] = None
-    enable_twitter_notifications: bool = False
     
     # Simulation Mode Configuration
     simulation_mode: bool = False
     simulation_balance: float = 10000.0  # Default $10k simulation balance
+    simulation_use_signal_group: bool = True  # Use signal group for simulation notifications
     
     def get_mode_specific_watchlist_file(self) -> str:
         """Get watchlist file path based on trading mode."""
-        if self.testnet:
+        if self.simulation_mode:
+            return "config/watchlist_simulation.txt"
+        elif self.testnet:
             return "config/watchlist_testnet.txt"
         else:
             return "config/watchlist_live.txt"
     
     def get_mode_specific_active_trades_file(self) -> str:
         """Get active trades file path based on trading mode."""
-        if self.testnet:
+        if self.simulation_mode:
+            return "data/active_trades_simulation.json"
+        elif self.testnet:
             return "data/active_trades_testnet.json"
         else:
             return "data/active_trades_live.json"
     
     def get_mode_specific_log_file(self) -> str:
         """Get log file path based on trading mode."""
-        if self.testnet:
+        if self.simulation_mode:
+            return "logs/output_simulation.log"
+        elif self.testnet:
             return "logs/output_testnet.log"
         else:
             return "logs/output_live.log"
@@ -165,17 +165,11 @@ class TradingConfig:
             # Telegram Notifications
             telegram_bot_token=get_env("TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=get_env("TELEGRAM_CHAT_ID"),
+            telegram_signal_group_id=get_env("TELEGRAM_SIGNAL_GROUP_ID"),
             enable_telegram_notifications=get_env_bool("ENABLE_TELEGRAM_NOTIFICATIONS", False),
             
-            # Twitter Notifications (for simulation mode)
-            twitter_bearer_token=get_env("TWITTER_BEARER_TOKEN"),
-            twitter_api_key=get_env("TWITTER_API_KEY"),
-            twitter_api_secret=get_env("TWITTER_API_SECRET"),
-            twitter_access_token=get_env("TWITTER_ACCESS_TOKEN"),
-            twitter_access_token_secret=get_env("TWITTER_ACCESS_TOKEN_SECRET"),
-            enable_twitter_notifications=get_env_bool("ENABLE_TWITTER_NOTIFICATIONS", False),
-            
-            # Simulation Mode Configuration
+            # Simulation Mode Configuration  
             simulation_mode=get_env_bool("SIMULATION_MODE", False),
-            simulation_balance=get_env_float("SIMULATION_BALANCE", 10000.0)
+            simulation_balance=get_env_float("SIMULATION_BALANCE", 10000.0),
+            simulation_use_signal_group=get_env_bool("SIMULATION_USE_SIGNAL_GROUP", True)
         )

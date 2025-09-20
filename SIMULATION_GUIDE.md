@@ -2,7 +2,7 @@
 
 ## Overview
 
-The simulation bot (`simulate_bot.py`) is a complete trading simulation system that operates with virtual balance and Twitter notifications instead of real trading and Telegram notifications.
+The simulation bot (`simulate_bot.py`) is a complete trading simulation system that operates with virtual balance and Telegram notifications to a signal group instead of real trading.
 
 ## Key Differences from Real Trading Bot
 
@@ -10,7 +10,7 @@ The simulation bot (`simulate_bot.py`) is a complete trading simulation system t
 | ----------------- | -------------------- | --------------------------------------- |
 | **Account**       | Real Binance account | Virtual balance simulation              |
 | **Trading**       | Executes real trades | Simulates trades with virtual positions |
-| **Notifications** | Telegram messages    | Twitter posts and replies               |
+| **Notifications** | Telegram chat        | Telegram signal group                   |
 | **Balance**       | Real USDT balance    | Configurable virtual balance            |
 | **Risk**          | Real money at risk   | No real money involved                  |
 
@@ -35,25 +35,35 @@ SYMBOLS=BTCUSDT,ETHUSDT,ADAUSDT,BNBUSDT
 TRADE_AMOUNT=100.0
 SCAN_INTERVAL=60
 
-# Twitter API (optional - for posting signals)
-ENABLE_TWITTER_NOTIFICATIONS=true
-TWITTER_BEARER_TOKEN=your_bearer_token
-TWITTER_API_KEY=your_api_key
-TWITTER_API_SECRET=your_api_secret
-TWITTER_ACCESS_TOKEN=your_access_token
-TWITTER_ACCESS_TOKEN_SECRET=your_access_secret
+# Telegram Notifications (for signal group)
+ENABLE_TELEGRAM_NOTIFICATIONS=true
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_SIGNAL_GROUP_ID=your_signal_group_id
+SIMULATION_USE_SIGNAL_GROUP=true
 ```
 
-### 2. Twitter API Setup (Optional)
+### 2. Telegram Bot Setup
 
-To enable Twitter notifications:
+To enable Telegram notifications for simulation:
 
-1. Create a Twitter Developer account at https://developer.twitter.com
-2. Create a new app and get your API credentials
-3. Set the Twitter environment variables in your `.env` file
-4. Set `ENABLE_TWITTER_NOTIFICATIONS=true`
+1. Create a Telegram bot:
 
-If you don't want Twitter notifications, set `ENABLE_TWITTER_NOTIFICATIONS=false`.
+   - Message @BotFather on Telegram
+   - Use `/newbot` command and follow instructions
+   - Get your bot token
+
+2. Set up signal group:
+
+   - Create a Telegram group for trading signals
+   - Add your bot to the group
+   - Get the group ID (use @userinfobot or check bot logs)
+
+3. Configure environment variables:
+   - Set `TELEGRAM_BOT_TOKEN` with your bot token
+   - Set `TELEGRAM_SIGNAL_GROUP_ID` with your group ID
+   - Set `ENABLE_TELEGRAM_NOTIFICATIONS=true`
+
+If you don't want notifications, set `ENABLE_TELEGRAM_NOTIFICATIONS=false`.
 
 ### 3. Running the Simulation Bot
 
@@ -97,14 +107,14 @@ python simulate_bot.py --balance 5000
 - Simulates position entries and exits
 - Tracks profit/loss without real money
 
-### 3. Twitter Notifications
+### 3. Telegram Notifications
 
-- **Signal Posts**: When entering a position, posts a tweet with:
+- **Signal Messages**: When entering a position, sends a message to the signal group with:
   - Trading signal (BUY/SELL)
   - Symbol and price
   - Stop loss and take profit levels
   - Trade amount
-- **Completion Replies**: When closing a position, replies to the original signal tweet with:
+- **Completion Messages**: When closing a position, sends another message with:
   - Final result (profit/loss)
   - Exit price and reason
   - Performance summary
@@ -123,7 +133,7 @@ python simulate_bot.py --balance 5000
    Simulation Balance: $10,000.00
    Trading Symbols: 4 symbols
    Trade Amount: $100.00
-   Twitter Notifications: ✅ Enabled
+   Telegram Notifications: ✅ Enabled
    Testnet Mode: ✅ Enabled
 
 🚀 Starting continuous simulation...
@@ -139,7 +149,9 @@ Win Rate: 80.0%
 
 ## Twitter Notification Examples
 
-### Signal Tweet
+## Telegram Notification Examples
+
+### Signal Message
 
 ```
 🚀 TRADING SIGNAL: BUY BTCUSDT
@@ -151,7 +163,7 @@ Win Rate: 80.0%
 #TradingBot #Bitcoin #BUY
 ```
 
-### Completion Reply
+### Completion Message
 
 ```
 ✅ TRADE COMPLETED
@@ -179,10 +191,10 @@ python test_simulation_bot.py
 ### Verify Setup
 
 ```bash
-# Test single cycle without Twitter
-ENABLE_TWITTER_NOTIFICATIONS=false python simulate_bot.py --once
+# Test single cycle without notifications
+ENABLE_TELEGRAM_NOTIFICATIONS=false python simulate_bot.py --once
 
-# Test with Twitter (requires API credentials)
+# Test with Telegram notifications
 python simulate_bot.py --once
 ```
 
@@ -209,12 +221,12 @@ python simulate_bot.py --once
 
    - Check `.env` file exists and has correct format
    - Verify Binance API credentials are valid (for market data)
-   - For Twitter: ensure all 5 Twitter API credentials are set
+   - For Telegram: ensure bot token and group ID are set correctly
 
-4. **Twitter API Errors**
-   - Verify API credentials are correct
-   - Check Twitter API rate limits
-   - Ensure your Twitter app has write permissions
+4. **Telegram Bot Errors**
+   - Verify bot token is correct
+   - Check that bot is added to the signal group
+   - Ensure bot has permission to send messages in the group
 
 ### Debug Mode
 
@@ -245,7 +257,7 @@ To switch from simulation to real trading:
 
 1. Set `SIMULATION_MODE=false` in `.env`
 2. Configure real Binance account (not testnet)
-3. Set up Telegram notifications instead of Twitter
+3. Set up Telegram notifications for signal group
 4. Run `python main.py` instead of `python simulate_bot.py`
 
 ## Support
