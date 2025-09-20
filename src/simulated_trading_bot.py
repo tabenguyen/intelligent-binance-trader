@@ -78,6 +78,10 @@ class SimulatedTradingBot:
             config.get_mode_specific_active_trades_file()
         )
         
+        # Initialize risk management service (same as real trading bot)
+        from .services.risk_management_service import RiskManagementService
+        self.risk_manager = RiskManagementService(config)
+        
         self.technical_analysis_service = TechnicalAnalysisService()
         
         # Initialize Twitter notification service
@@ -174,28 +178,30 @@ class SimulatedTradingBot:
     def simulate_trade_execution(self, signal: TradingSignal) -> bool:
         """Simulate trade execution with virtual balance."""
         try:
-            # Check if we have enough balance
-            trade_amount = min(self.config.trade_amount, self.balance * 0.95)  # Use 95% of balance max
+            # Use same position sizing logic as real trading bot
+            position_size = self.risk_manager.calculate_position_size(signal, self.balance)
             
-            if trade_amount < self.config.risk_config.min_notional_usdt:
-                self.logger.warning(f"Insufficient balance for {signal.symbol}: ${self.balance:.2f}")
+            # Check if position size is valid
+            if position_size <= 0:
+                self.logger.warning(f"Cannot execute trade for {signal.symbol}: Position size calculation returned 0")
                 return False
             
-            # Calculate position size
-            quantity = trade_amount / signal.price
+            # Calculate trade amount (quantity * price)
+            trade_amount = position_size * signal.price
             
-            # Calculate stop loss and take profit
-            if signal.direction == TradeDirection.BUY:
-                stop_loss = signal.stop_loss or signal.price * 0.95  # 5% stop loss
-                take_profit = signal.take_profit or signal.price * 1.10  # 10% take profit
-            else:
-                stop_loss = signal.stop_loss or signal.price * 1.05  # 5% stop loss for short
-                take_profit = signal.take_profit or signal.price * 0.90  # 10% take profit for short
+            # Validate we have sufficient balance
+            if trade_amount > self.balance:
+                self.logger.warning(f"Insufficient balance for {signal.symbol}: Need ${trade_amount:.2f}, have ${self.balance:.2f}")
+                return False
+            
+            # Use risk manager to calculate stop loss and take profit (same as real bot)
+            stop_loss = self.risk_manager.calculate_stop_loss(signal)
+            take_profit = self.risk_manager.calculate_take_profit(signal)
             
             # Create simulated position
             position = SimulatedPosition(
                 symbol=signal.symbol,
-                quantity=quantity,
+                quantity=position_size,
                 entry_price=signal.price,
                 entry_time=datetime.now(),
                 stop_loss=stop_loss,
@@ -212,7 +218,7 @@ class SimulatedTradingBot:
             self.logger.info(
                 f"🎯 SIMULATED TRADE EXECUTED: {signal.symbol}\n"
                 f"   Direction: {signal.direction.value}\n"
-                f"   Quantity: {quantity:.6f}\n"
+                f"   Quantity: {position_size:.6f}\n"
                 f"   Entry Price: ${signal.price:.4f}\n"
                 f"   Trade Amount: ${trade_amount:.2f}\n"
                 f"   Stop Loss: ${stop_loss:.4f}\n"
