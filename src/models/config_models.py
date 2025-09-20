@@ -83,6 +83,18 @@ class TradingConfig:
     telegram_chat_id: Optional[str] = None
     enable_telegram_notifications: bool = False
     
+    # Twitter Notifications (for simulation mode)
+    twitter_bearer_token: Optional[str] = None
+    twitter_api_key: Optional[str] = None
+    twitter_api_secret: Optional[str] = None
+    twitter_access_token: Optional[str] = None
+    twitter_access_token_secret: Optional[str] = None
+    enable_twitter_notifications: bool = False
+    
+    # Simulation Mode Configuration
+    simulation_mode: bool = False
+    simulation_balance: float = 10000.0  # Default $10k simulation balance
+    
     def get_mode_specific_watchlist_file(self) -> str:
         """Get watchlist file path based on trading mode."""
         if self.testnet:
@@ -153,5 +165,17 @@ class TradingConfig:
             # Telegram Notifications
             telegram_bot_token=get_env("TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=get_env("TELEGRAM_CHAT_ID"),
-            enable_telegram_notifications=get_env_bool("ENABLE_TELEGRAM_NOTIFICATIONS", False)
+            enable_telegram_notifications=get_env_bool("ENABLE_TELEGRAM_NOTIFICATIONS", False),
+            
+            # Twitter Notifications (for simulation mode)
+            twitter_bearer_token=get_env("TWITTER_BEARER_TOKEN"),
+            twitter_api_key=get_env("TWITTER_API_KEY"),
+            twitter_api_secret=get_env("TWITTER_API_SECRET"),
+            twitter_access_token=get_env("TWITTER_ACCESS_TOKEN"),
+            twitter_access_token_secret=get_env("TWITTER_ACCESS_TOKEN_SECRET"),
+            enable_twitter_notifications=get_env_bool("ENABLE_TWITTER_NOTIFICATIONS", False),
+            
+            # Simulation Mode Configuration
+            simulation_mode=get_env_bool("SIMULATION_MODE", False),
+            simulation_balance=get_env_float("SIMULATION_BALANCE", 10000.0)
         )
