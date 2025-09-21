@@ -150,7 +150,7 @@ class TelegramNotificationService(INotificationService):
         try:
             direction_emoji = "🟢" if signal.direction.value == "BUY" else "🔴"
             
-            # Format message with HTML markup for Telegram
+            # Format message with HTML markup for Telegram - Enhanced format
             message = (
                 f"{direction_emoji} <b>Trading Signal: {signal.symbol}</b>\n"
                 f"🎯 Strategy: <code>{signal.strategy_name}</code>\n"

@@ -25,7 +25,9 @@ from .services.notification_service import TelegramNotificationService, LoggingN
 from .services.market_data_service import BinanceMarketDataService
 from .services.technical_analysis_service import TechnicalAnalysisService
 from .strategies.ema_cross_strategy import EMACrossStrategy
+from .strategies.improved_ema_cross_strategy import ImprovedEMACrossStrategy
 from .utils.logging_config import setup_logging
+from .utils.config import load_strategy_configs
 
 
 @dataclass
@@ -73,16 +75,16 @@ class SimulatedTradingBot:
         )
         
         # Initialize risk management service (same as real trading bot)
-        from .services.risk_management_service import RiskManagementService
-        self.risk_manager = RiskManagementService(config)
+        from .services.enhanced_risk_management_service import EnhancedRiskManagementService
+        self.risk_manager = EnhancedRiskManagementService(config)
         
         self.technical_analysis_service = TechnicalAnalysisService()
         
         # Initialize Twitter notification service
         self.notification_service = self._initialize_notification_service()
         
-        # Initialize strategies
-        self.strategy = EMACrossStrategy()
+        # Initialize strategies - use same logic as trading bot
+        self.strategy = self._initialize_strategy()
         
         # Load previous simulation state if it exists
         self.load_simulation_state()
@@ -126,6 +128,24 @@ class SimulatedTradingBot:
         except Exception as e:
             self.logger.error(f"Failed to initialize Telegram service: {e}")
             return LoggingNotificationService()
+    
+    def _initialize_strategy(self):
+        """Initialize trading strategy with proper configuration - same as trading bot."""
+        # Load strategy configurations from environment
+        strategy_configs = load_strategy_configs()
+        
+        # Use ENHANCED EMA Cross Strategy - "Quality over Quantity" (same as trading bot)
+        ema_config = next((config for config in strategy_configs if "EMA Cross" in config.name), None)
+        if ema_config:
+            # Use the enhanced strategy for better quality trades
+            strategy = ImprovedEMACrossStrategy(ema_config)
+            self.logger.info("✅ Loaded ENHANCED EMA Cross Strategy - Quality over Quantity focus")
+        else:
+            # Fallback to enhanced strategy with default config
+            strategy = ImprovedEMACrossStrategy()
+            self.logger.info("✅ Loaded ENHANCED EMA Cross Strategy with default config")
+        
+        return strategy
     
     def scan_for_signals(self) -> List[TradingSignal]:
         """Scan watchlist for trading signals."""
@@ -202,6 +222,10 @@ class SimulatedTradingBot:
             stop_loss = self.risk_manager.calculate_stop_loss(signal)
             take_profit = self.risk_manager.calculate_take_profit(signal)
             
+            # Update signal with final calculated values for accurate notification
+            signal.stop_loss = stop_loss
+            signal.take_profit = take_profit
+            
             # Create simulated position
             position = SimulatedPosition(
                 symbol=signal.symbol,
@@ -215,7 +239,7 @@ class SimulatedTradingBot:
             # No balance deduction - unlimited simulation balance
             self.positions[signal.symbol] = position
             
-            # Send signal notification with trade value
+            # Send signal notification with trade value and final calculated values
             self.notification_service.send_signal_notification(signal, trade_value=trade_amount, position_size=position_size)
             
             self.logger.info(
