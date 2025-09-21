@@ -518,8 +518,9 @@ class TradingBot:
                 # Add position to manager
                 self.position_manager.add_position(position)
                 
-                # Send notifications
-                self.notification_service.send_signal_notification(signal)
+                # Send notifications with trade value
+                trade_value = result.filled_quantity * result.filled_price
+                self.notification_service.send_signal_notification(signal, trade_value=trade_value, position_size=result.filled_quantity)
                 
                 # Place OCO order for stop loss and take profit if enabled
                 if self.config.enable_oco_orders:

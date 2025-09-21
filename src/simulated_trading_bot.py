@@ -21,10 +21,9 @@ from dataclasses import dataclass
 
 from .core.interfaces import INotificationService
 from .models import Trade, TradingSignal, TradeDirection, TradeStatus, Position
-from .services.notification_service import TelegramNotificationService, LoggingNotificationService
+from .services.notification_service import TelegramNotificationService, LoggingNotificationService, CompositeNotificationService
 from .services.market_data_service import BinanceMarketDataService
 from .services.technical_analysis_service import TechnicalAnalysisService
-from .services.position_management_service import PositionManagementService
 from .strategies.ema_cross_strategy import EMACrossStrategy
 from .utils.logging_config import setup_logging
 
@@ -73,11 +72,6 @@ class SimulatedTradingBot:
             testnet=config.testnet
         )
         
-        # Initialize position manager with simulation-specific file
-        self.position_manager = PositionManagementService(
-            config.get_mode_specific_active_trades_file()
-        )
-        
         # Initialize risk management service (same as real trading bot)
         from .services.risk_management_service import RiskManagementService
         self.risk_manager = RiskManagementService(config)
@@ -93,12 +87,15 @@ class SimulatedTradingBot:
         # Load previous simulation state if it exists
         self.load_simulation_state()
         
-        self.logger.info(f"🎯 Simulated Trading Bot initialized with ${self.balance:.2f} balance")
+        self.logger.info(f"🎯 Simulated Trading Bot initialized with unlimited balance")
     
     def _initialize_notification_service(self) -> INotificationService:
         """Initialize the notification service with Telegram integration for simulation."""
         try:
-            # For simulation mode, use Telegram notifications to signal group
+            # For simulation mode, use both Telegram and logging notifications
+            services = []
+            
+            # Add Telegram service if configured
             if (hasattr(self.config, 'telegram_bot_token') and self.config.telegram_bot_token and
                 hasattr(self.config, 'telegram_signal_group_id') and self.config.telegram_signal_group_id):
                 
@@ -107,13 +104,23 @@ class SimulatedTradingBot:
                 # Use signal group for simulation notifications
                 chat_id = self.config.telegram_signal_group_id if self.config.simulation_use_signal_group else self.config.telegram_chat_id
                 
-                return TelegramNotificationService(
+                telegram_service = TelegramNotificationService(
                     bot_token=self.config.telegram_bot_token,
                     chat_id=chat_id,
                     fallback_service=LoggingNotificationService()
                 )
+                services.append(telegram_service)
+            
+            # Always add logging service for simulation
+            services.append(LoggingNotificationService())
+            
+            # Return composite service if multiple services, otherwise single service
+            if len(services) > 1:
+                return CompositeNotificationService(services)
+            elif services:
+                return services[0]
             else:
-                self.logger.warning("⚠️ Telegram credentials not configured for simulation, using logging only")
+                self.logger.warning("⚠️ No notification service configured, using logging only")
                 return LoggingNotificationService()
                 
         except Exception as e:
@@ -176,23 +183,20 @@ class SimulatedTradingBot:
         return signals
     
     def simulate_trade_execution(self, signal: TradingSignal) -> bool:
-        """Simulate trade execution with virtual balance."""
+        """Simulate trade execution with unlimited balance using fixed trade value."""
         try:
-            # Use same position sizing logic as real trading bot
-            position_size = self.risk_manager.calculate_position_size(signal, self.balance)
+            # Use fixed trade value from configuration
+            trade_amount = self.config.simulation_fixed_trade_value
+            
+            # Calculate position size based on fixed trade amount
+            position_size = trade_amount / signal.price
             
             # Check if position size is valid
             if position_size <= 0:
-                self.logger.warning(f"Cannot execute trade for {signal.symbol}: Position size calculation returned 0")
+                self.logger.warning(f"Cannot execute trade for {signal.symbol}: Invalid position size calculation")
                 return False
             
-            # Calculate trade amount (quantity * price)
-            trade_amount = position_size * signal.price
-            
-            # Validate we have sufficient balance
-            if trade_amount > self.balance:
-                self.logger.warning(f"Insufficient balance for {signal.symbol}: Need ${trade_amount:.2f}, have ${self.balance:.2f}")
-                return False
+            # No balance validation - unlimited simulation balance
             
             # Use risk manager to calculate stop loss and take profit (same as real bot)
             stop_loss = self.risk_manager.calculate_stop_loss(signal)
@@ -208,12 +212,11 @@ class SimulatedTradingBot:
                 take_profit=take_profit
             )
             
-            # Update simulated balance
-            self.balance -= trade_amount
+            # No balance deduction - unlimited simulation balance
             self.positions[signal.symbol] = position
             
-            # Send signal notification to Twitter
-            self.notification_service.send_signal_notification(signal)
+            # Send signal notification with trade value
+            self.notification_service.send_signal_notification(signal, trade_value=trade_amount, position_size=position_size)
             
             self.logger.info(
                 f"🎯 SIMULATED TRADE EXECUTED: {signal.symbol}\n"
@@ -222,8 +225,7 @@ class SimulatedTradingBot:
                 f"   Entry Price: ${signal.price:.4f}\n"
                 f"   Trade Amount: ${trade_amount:.2f}\n"
                 f"   Stop Loss: ${stop_loss:.4f}\n"
-                f"   Take Profit: ${take_profit:.4f}\n"
-                f"   Remaining Balance: ${self.balance:.2f}"
+                f"   Take Profit: ${take_profit:.4f}"
             )
             
             return True
@@ -286,10 +288,6 @@ class SimulatedTradingBot:
                         strategy_name="Simulated EMA Cross Strategy"
                     )
                     
-                    # Update simulated balance
-                    exit_value = current_price * position.quantity
-                    self.balance += exit_value
-                    
                     # Store completed trade
                     self.completed_trades.append(trade)
                     
@@ -298,8 +296,7 @@ class SimulatedTradingBot:
                     
                     self.logger.info(
                         f"✅ SIMULATED TRADE CLOSED: {symbol} @ ${current_price:.4f} ({exit_reason})\n"
-                        f"   P&L: ${pnl:+.2f}\n"
-                        f"   Balance: ${self.balance:.2f}"
+                        f"   P&L: ${pnl:+.2f}"
                     )
                     
                     symbols_to_close.append(symbol)
@@ -321,8 +318,6 @@ class SimulatedTradingBot:
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         
         return {
-            'initial_balance': self.initial_balance,
-            'current_balance': self.balance,
             'total_pnl': total_pnl,
             'total_trades': total_trades,
             'winning_trades': winning_trades,
@@ -350,7 +345,7 @@ class SimulatedTradingBot:
             performance = self.get_performance_summary()
             self.logger.info(
                 f"📈 SIMULATION PERFORMANCE:\n"
-                f"   Balance: ${performance['current_balance']:.2f} (${performance['total_pnl']:+.2f})\n"
+                f"   Total P&L: ${performance['total_pnl']:+.2f}\n"
                 f"   Trades: {performance['total_trades']} (Win Rate: {performance['win_rate']:.1f}%)\n"
                 f"   Active Positions: {performance['active_positions']}"
             )
@@ -382,10 +377,7 @@ class SimulatedTradingBot:
             performance = self.get_performance_summary()
             self.logger.info(
                 f"🏁 FINAL SIMULATION RESULTS:\n"
-                f"   Initial Balance: ${performance['initial_balance']:.2f}\n"
-                f"   Final Balance: ${performance['current_balance']:.2f}\n"
                 f"   Total P&L: ${performance['total_pnl']:+.2f}\n"
-                f"   Return: {((performance['current_balance'] - performance['initial_balance']) / performance['initial_balance'] * 100):+.2f}%\n"
                 f"   Total Trades: {performance['total_trades']}\n"
                 f"   Win Rate: {performance['win_rate']:.1f}%"
             )
@@ -401,8 +393,6 @@ class SimulatedTradingBot:
             
             # Prepare simulation state data
             state_data = {
-                'balance': self.balance,
-                'initial_balance': self.initial_balance,
                 'positions': {},
                 'completed_trades': [],
                 'timestamp': datetime.now().isoformat()
@@ -466,10 +456,6 @@ class SimulatedTradingBot:
             with open(state_file, 'r') as f:
                 state_data = json.load(f)
             
-            # Restore balance
-            self.balance = state_data.get('balance', self.config.simulation_balance)
-            self.initial_balance = state_data.get('initial_balance', self.config.simulation_balance)
-            
             # Restore positions
             self.positions = {}
             for symbol, pos_data in state_data.get('positions', {}).items():
@@ -507,7 +493,6 @@ class SimulatedTradingBot:
             
             saved_at = state_data.get('timestamp', 'unknown')
             self.logger.info(f"📂 Simulation state loaded (saved at {saved_at})")
-            self.logger.info(f"   Balance: ${self.balance:.2f}")
             self.logger.info(f"   Active Positions: {len(self.positions)}")
             self.logger.info(f"   Completed Trades: {len(self.completed_trades)}")
             

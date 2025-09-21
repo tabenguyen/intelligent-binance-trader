@@ -57,9 +57,9 @@ def simulate_bot(run_once: bool = False) -> None:
             raise ValueError("No trading symbols configured")
         
         print(f"✅ Configuration loaded:")
-        print(f"   Simulation Balance: ${config.simulation_balance:,.2f}")
         print(f"   Trading Symbols: {len(config.symbols)} symbols")
-        print(f"   Trade Amount: ${config.trade_amount:.2f}")
+        print(f"   Fixed Trade Value: ${config.simulation_fixed_trade_value:.2f}")
+        print(f"   Balance: Unlimited")
         print(f"   Telegram Notifications: {'✅ Enabled' if config.enable_telegram_notifications else '❌ Disabled'}")
         print(f"   Testnet Mode: {'✅ Enabled' if config.testnet else '❌ Disabled'}")
         
@@ -75,7 +75,7 @@ def simulate_bot(run_once: bool = False) -> None:
             print("\n" + "="*60)
             print("📊 SIMULATION CYCLE COMPLETED")
             print("="*60)
-            print(f"Balance: ${performance['current_balance']:.2f} (Change: ${performance['total_pnl']:+.2f})")
+            print(f"Total P&L: ${performance['total_pnl']:+.2f}")
             print(f"Active Positions: {performance['active_positions']}")
             print(f"Completed Trades: {performance['total_trades']}")
             if performance['total_trades'] > 0:

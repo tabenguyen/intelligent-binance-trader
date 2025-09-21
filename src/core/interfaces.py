@@ -162,7 +162,7 @@ class INotificationService(ABC):
         pass
     
     @abstractmethod
-    def send_signal_notification(self, signal: TradingSignal) -> None:
+    def send_signal_notification(self, signal: TradingSignal, trade_value: Optional[float] = None, position_size: Optional[float] = None) -> None:
         """Send notification for a trading signal."""
         pass
     

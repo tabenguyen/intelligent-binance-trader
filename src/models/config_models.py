@@ -88,6 +88,7 @@ class TradingConfig:
     simulation_mode: bool = False
     simulation_balance: float = 10000.0  # Default $10k simulation balance
     simulation_use_signal_group: bool = True  # Use signal group for simulation notifications
+    simulation_fixed_trade_value: float = 100.0  # Fixed trade value for simulation mode
     
     def get_mode_specific_watchlist_file(self) -> str:
         """Get watchlist file path based on trading mode."""

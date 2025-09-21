@@ -108,7 +108,6 @@ class TelegramNotificationService(INotificationService):
             # Format message with HTML markup for Telegram
             message = (
                 f"{status_emoji} <b>Trade Completed: {trade.symbol}</b>\n"
-                f"📊 Direction: <code>{trade.direction.value}</code>\n"
                 f"🔢 Quantity: <code>{trade.quantity:.6f}</code>\n"
                 f"💰 Trade Value: <code>${trade_value:.2f}</code>\n"
                 f"📈 Entry: <code>${trade.entry_price:.4f}</code>\n"
@@ -146,7 +145,7 @@ class TelegramNotificationService(INotificationService):
             self.logger.error(f"Error sending Telegram trade notification: {e}")
             self.fallback.send_trade_notification(trade)
     
-    def send_signal_notification(self, signal: TradingSignal) -> None:
+    def send_signal_notification(self, signal: TradingSignal, trade_value: Optional[float] = None, position_size: Optional[float] = None) -> None:
         """Send notification for a trading signal."""
         try:
             direction_emoji = "🟢" if signal.direction.value == "BUY" else "🔴"
@@ -160,11 +159,21 @@ class TelegramNotificationService(INotificationService):
                 f"🎲 Confidence: <code>{signal.confidence:.1%}</code>\n"
             )
             
-            # Add stop loss and take profit if available
+            # Add trade value if available
+            if trade_value is not None:
+                message += f"💵 Trade Value: <code>${trade_value:.2f}</code>\n"
+            elif position_size is not None:
+                # Calculate trade value from position size and price
+                calculated_trade_value = position_size * signal.price
+                message += f"💵 Trade Value: <code>${calculated_trade_value:.2f}</code>\n"
+            
+            # Add stop loss and take profit with rates/percentages
             if signal.stop_loss:
-                message += f"🛑 Stop Loss: <code>${signal.stop_loss:.4f}</code>\n"
+                sl_rate = ((signal.price - signal.stop_loss) / signal.price) * 100
+                message += f"🛑 Stop Loss: <code>${signal.stop_loss:.4f}</code> <code>({sl_rate:.2f}%)</code>\n"
             if signal.take_profit:
-                message += f"🎯 Take Profit: <code>${signal.take_profit:.4f}</code>\n"
+                tp_rate = ((signal.take_profit - signal.price) / signal.price) * 100
+                message += f"🎯 Take Profit: <code>${signal.take_profit:.4f}</code> <code>({tp_rate:.2f}%)</code>\n"
                 
             # Add core conditions if available
             if hasattr(signal, 'core_conditions_count'):
@@ -174,11 +183,11 @@ class TelegramNotificationService(INotificationService):
             
             # Fallback to logging if Telegram fails
             if not success:
-                self.fallback.send_signal_notification(signal)
+                self.fallback.send_signal_notification(signal, trade_value, position_size)
                 
         except Exception as e:
             self.logger.error(f"Error sending Telegram signal notification: {e}")
-            self.fallback.send_signal_notification(signal)
+            self.fallback.send_signal_notification(signal, trade_value, position_size)
     
     def send_error_notification(self, error: str) -> None:
         """Send error notification."""
@@ -278,11 +287,11 @@ class CompositeNotificationService(INotificationService):
             except Exception as e:
                 self.logger.error(f"Error in notification service {service.__class__.__name__}: {e}")
     
-    def send_signal_notification(self, signal: TradingSignal) -> None:
+    def send_signal_notification(self, signal: TradingSignal, trade_value: Optional[float] = None, position_size: Optional[float] = None) -> None:
         """Send signal notification to all services."""
         for service in self.services:
             try:
-                service.send_signal_notification(signal)
+                service.send_signal_notification(signal, trade_value, position_size)
             except Exception as e:
                 self.logger.error(f"Error in notification service {service.__class__.__name__}: {e}")
     
@@ -331,7 +340,6 @@ class LoggingNotificationService(INotificationService):
             
             message = (
                 f"{status_emoji} Trade Completed: {trade.symbol}\n"
-                f"Direction: {trade.direction.value}\n"
                 f"Quantity: {trade.quantity:.6f}\n"
                 f"Trade Value: ${trade_value:.2f}\n"
                 f"Entry: ${trade.entry_price:.4f}\n"
@@ -367,7 +375,7 @@ class LoggingNotificationService(INotificationService):
         except Exception as e:
             self.logger.error(f"Error sending trade notification: {e}")
     
-    def send_signal_notification(self, signal: TradingSignal) -> None:
+    def send_signal_notification(self, signal: TradingSignal, trade_value: Optional[float] = None, position_size: Optional[float] = None) -> None:
         """Send notification for a trading signal."""
         try:
             direction_emoji = "🟢" if signal.direction.value == "BUY" else "🔴"
@@ -376,11 +384,25 @@ class LoggingNotificationService(INotificationService):
                 f"{direction_emoji} Trading Signal: {signal.symbol}\n"
                 f"Strategy: {signal.strategy_name}\n"
                 f"Direction: {signal.direction.value}\n"
-                f"Price: ${signal.price:.2f}\n"
+                f"Price: ${signal.price:.4f}\n"
                 f"Confidence: {signal.confidence:.1%}\n"
-                f"Stop Loss: ${signal.stop_loss:.2f}" if signal.stop_loss else "Stop Loss: N/A" + "\n"
-                f"Take Profit: ${signal.take_profit:.2f}" if signal.take_profit else "Take Profit: N/A"
             )
+            
+            # Add trade value if available
+            if trade_value is not None:
+                message += f"Trade Value: ${trade_value:.2f}\n"
+            elif position_size is not None:
+                # Calculate trade value from position size and price
+                calculated_trade_value = position_size * signal.price
+                message += f"Trade Value: ${calculated_trade_value:.2f}\n"
+            
+            # Add stop loss and take profit with rates/percentages
+            if signal.stop_loss:
+                sl_rate = ((signal.price - signal.stop_loss) / signal.price) * 100
+                message += f"Stop Loss: ${signal.stop_loss:.4f} ({sl_rate:.2f}%)\n"
+            if signal.take_profit:
+                tp_rate = ((signal.take_profit - signal.price) / signal.price) * 100
+                message += f"Take Profit: ${signal.take_profit:.4f} ({tp_rate:.2f}%)"
             
             self.logger.info(f"📡 SIGNAL GENERATED: {message}")
             
@@ -563,7 +585,7 @@ class TwitterNotificationService(INotificationService):
             self.logger.error(f"Error posting tweet: {e}")
             return None
     
-    def send_signal_notification(self, signal: TradingSignal) -> None:
+    def send_signal_notification(self, signal: TradingSignal, trade_value: Optional[float] = None, position_size: Optional[float] = None) -> None:
         """Send notification for a trading signal as a Twitter post."""
         try:
             direction_emoji = "🟢" if signal.direction.value == "BUY" else "🔴"
@@ -576,11 +598,21 @@ class TwitterNotificationService(INotificationService):
                 f"🎲 Confidence: {signal.confidence:.1%}\n"
             )
             
-            # Add stop loss and take profit if available
+            # Add trade value if available (keep concise for Twitter)
+            if trade_value is not None:
+                message += f"💵 Value: ${trade_value:.0f}\n"
+            elif position_size is not None:
+                # Calculate trade value from position size and price
+                calculated_trade_value = position_size * signal.price
+                message += f"💵 Value: ${calculated_trade_value:.0f}\n"
+            
+            # Add stop loss and take profit with rates if available
             if signal.stop_loss:
-                message += f"🛑 SL: ${signal.stop_loss:.4f}\n"
+                sl_rate = ((signal.price - signal.stop_loss) / signal.price) * 100
+                message += f"🛑 SL: ${signal.stop_loss:.4f} ({sl_rate:.1f}%)\n"
             if signal.take_profit:
-                message += f"🎯 TP: ${signal.take_profit:.4f}\n"
+                tp_rate = ((signal.take_profit - signal.price) / signal.price) * 100
+                message += f"🎯 TP: ${signal.take_profit:.4f} ({tp_rate:.1f}%)\n"
             
             # Add hashtags
             message += f"\n#TradingBot #Crypto #{signal.symbol.replace('USDT', '')} #TechnicalAnalysis"
@@ -594,11 +626,11 @@ class TwitterNotificationService(INotificationService):
                 self.logger.info(f"📡 Signal tweet posted for {signal.symbol}: {tweet_id}")
             else:
                 # Fallback to logging if Twitter fails
-                self.fallback.send_signal_notification(signal)
+                self.fallback.send_signal_notification(signal, trade_value, position_size)
                 
         except Exception as e:
             self.logger.error(f"Error sending Twitter signal notification: {e}")
-            self.fallback.send_signal_notification(signal)
+            self.fallback.send_signal_notification(signal, trade_value, position_size)
     
     def send_trade_notification(self, trade: Trade) -> None:
         """Send notification for a completed trade as a Twitter reply."""
@@ -720,11 +752,11 @@ class EmailNotificationService(INotificationService):
         self.logger.info("Email notification not implemented, falling back to logging")
         self.fallback.send_trade_notification(trade)
     
-    def send_signal_notification(self, signal: TradingSignal) -> None:
+    def send_signal_notification(self, signal: TradingSignal, trade_value: Optional[float] = None, position_size: Optional[float] = None) -> None:
         """Send signal notification via email."""
         # TODO: Implement email sending
         self.logger.info("Email notification not implemented, falling back to logging")
-        self.fallback.send_signal_notification(signal)
+        self.fallback.send_signal_notification(signal, trade_value, position_size)
     
     def send_error_notification(self, error: str) -> None:
         """Send error notification via email."""
