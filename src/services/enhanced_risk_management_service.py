@@ -231,6 +231,19 @@ class EnhancedRiskManagementService(IRiskManager):
             self.logger.info(f"   Position Size: {position_size:.6f}")
             self.logger.info(f"   Trade Value: ${position_size * signal.price:.2f}")
             
+            # After calculating position_size, ensure it meets minimum requirements
+            min_notional = self.config.min_notional_usdt
+            current_price = signal.price
+            
+            # Calculate minimum quantity needed to meet notional requirement
+            min_quantity_for_notional = min_notional / current_price
+            
+            # Use the larger of calculated position or minimum required
+            if position_size < min_quantity_for_notional:
+                self.logger.info(f"Adjusting position size from {position_size:.8f} to {min_quantity_for_notional:.8f} "
+                               f"to meet minimum notional requirement of ${min_notional}")
+                position_size = min_quantity_for_notional
+            
             return position_size
             
         except Exception as e:
