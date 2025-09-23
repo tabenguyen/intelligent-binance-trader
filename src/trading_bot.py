@@ -364,13 +364,12 @@ class TradingBot:
             self.logger.info("💼 All symbols have active positions - no scanning needed")
 
     def _refresh_watchlist(self) -> None:
-        """Refresh symbols from top USDT movers and update config.symbols and watchlist file."""
+        """Refresh symbols using 4-criteria ranking system."""
         try:
-            # Lazy import to avoid tight coupling
-            from .market_watcher import update_watchlist_from_top_movers
-            self.logger.info("📝 Refreshing watchlist from top 24h USDT movers...")
-            top = update_watchlist_from_top_movers(limit=self.config.watchlist_top_movers_limit)
-            symbols = top if top else self._read_watchlist_file()
+            from .market_watcher import update_watchlist_with_ranking
+            self.logger.info("📝 Refreshing watchlist using 4-criteria ranking...")
+            top_ranked = update_watchlist_with_ranking(limit=self.config.watchlist_top_movers_limit)
+            symbols = top_ranked if top_ranked else self._read_watchlist_file()
             if symbols:
                 prev_count = len(self.config.symbols)
                 self.config.symbols = symbols
@@ -1067,9 +1066,7 @@ class TradingBot:
         self.logger.info("✅ Configuration validated successfully")
         self.logger.info(f"   🔑 API Keys: Configured")
         self.logger.info(f"   📊 Symbols: {len(self.config.symbols)} configured")
-        self.logger.info(f"   💰 Trade Amount: ${self.config.trade_amount}")
         self.logger.info(f"   🏦 Testnet Mode: {'Enabled' if self.config.testnet else 'Disabled'}")
-        self.logger.info(f"   🔄 Scan Interval: {self.config.scan_interval}s")
     
     def get_status(self) -> dict:
         """Get current bot status."""
