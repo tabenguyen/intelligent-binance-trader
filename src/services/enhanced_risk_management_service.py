@@ -32,6 +32,181 @@ class EnhancedRiskManagementService(IRiskManager):
         self.preferred_risk_reward_ratio = 2.0  # Preferred R:R ratio
         self.max_risk_per_trade = 3.0  # Maximum 3% risk per trade
         self.quality_bonus_threshold = 0.85  # High quality signal threshold
+        
+        # Add symbol info cache for quantity formatting
+        self._symbol_info_cache = {}
+    
+    def _get_symbol_info(self, symbol: str) -> dict:
+        """Get symbol info from exchange, with caching."""
+        if symbol not in self._symbol_info_cache:
+            try:
+                # Import here to avoid circular imports
+                from ..services.binance_market_data_service import BinanceMarketDataService
+                
+                # Create a temporary market data service to get symbol info
+                market_service = BinanceMarketDataService(
+                    api_key=self.trading_config.api_key,
+                    api_secret=self.trading_config.api_secret,
+                    testnet=self.trading_config.testnet
+                )
+                
+                exchange_info = market_service.client.exchange_info()
+                for symbol_info in exchange_info['symbols']:
+                    if symbol_info['symbol'] == symbol:
+                        self._symbol_info_cache[symbol] = symbol_info
+                        break
+                else:
+                    raise ValueError(f"Symbol {symbol} not found in exchange info")
+            except Exception as e:
+                self.logger.error(f"Failed to get symbol info for {symbol}: {e}")
+                # Return a default LOT_SIZE filter for fallback
+                return {
+                    'filters': [
+                        {
+                            'filterType': 'LOT_SIZE',
+                            'stepSize': '0.000001',
+                            'minQty': '0.000001',
+                            'maxQty': '999999999.000000'
+                        }
+                    ]
+                }
+        
+        return self._symbol_info_cache[symbol]
+    
+    def _format_quantity(self, symbol: str, quantity: float) -> float:
+        """Format quantity according to symbol's LOT_SIZE filter."""
+        try:
+            symbol_info = self._get_symbol_info(symbol)
+            
+            # Find LOT_SIZE filter
+            lot_size_filter = None
+            for filter_info in symbol_info['filters']:
+                if filter_info['filterType'] == 'LOT_SIZE':
+                    lot_size_filter = filter_info
+                    break
+            
+            if not lot_size_filter:
+                self.logger.warning(f"No LOT_SIZE filter found for {symbol}, using 6 decimal places")
+                return round(quantity, 6)
+            
+            # Get step size (minimum quantity increment)
+            step_size = float(lot_size_filter['stepSize'])
+            min_qty = float(lot_size_filter['minQty'])
+            max_qty = float(lot_size_filter['maxQty'])
+            
+            # Calculate precision from step size
+            if step_size >= 1:
+                precision = 0
+            else:
+                precision = len(str(step_size).split('.')[-1].rstrip('0'))
+            
+            # Round to step size
+            formatted_quantity = round(quantity / step_size) * step_size
+            
+            # Round to correct precision
+            formatted_quantity = round(formatted_quantity, precision)
+            
+            # Ensure within min/max bounds
+            if formatted_quantity < min_qty:
+                formatted_quantity = min_qty
+            elif formatted_quantity > max_qty:
+                formatted_quantity = max_qty
+            
+            self.logger.debug(f"{symbol} quantity formatting: {quantity:.8f} -> {formatted_quantity:.8f} "
+                            f"(step: {step_size}, precision: {precision})")
+            
+            return formatted_quantity
+            
+        except Exception as e:
+            self.logger.error(f"Error formatting quantity for {symbol}: {e}")
+            # Fallback to 6 decimal places
+            return round(quantity, 6)
+
+    # ...existing validation methods remain the same...
+    
+    def calculate_enhanced_position_size(self, signal: TradingSignal, balance: float) -> float:
+        """
+        Calculate enhanced position size with quality-based adjustments and proper formatting.
+        """
+        try:
+            self.logger.info(f"💰 ENHANCED POSITION SIZE CALCULATION for {signal.symbol}")
+            self.logger.info(f"   Account Balance: ${balance:.2f}")
+            self.logger.info(f"   Signal Quality: {signal.confidence:.1%}")
+            
+            # Base calculation using risk-based sizing
+            if not signal.stop_loss:
+                self.logger.warning("❌ Cannot calculate risk-based size without stop loss")
+                return 0.0
+            
+            # Use fixed allocation percentage of balance for position sizing
+            allocation_percent = self.config.fixed_allocation_percentage / 100.0
+            allocated_balance = balance * allocation_percent
+            
+            self.logger.info(f"   Fixed Allocation: {self.config.fixed_allocation_percentage:.1f}% of balance")
+            self.logger.info(f"   Allocated Amount: ${allocated_balance:.2f}")
+            
+            # Calculate risk amount based on signal quality from allocated balance
+            base_risk_percent = min(self.config.risk_per_trade_percentage / 100, self.max_risk_per_trade / 100)
+            
+            # Quality adjustment: High quality signals get slightly more allocation
+            quality_multiplier = 1.0
+            if signal.confidence >= self.quality_bonus_threshold:
+                quality_multiplier = 1.2  # 20% bonus for premium signals
+                self.logger.info(f"   Quality Bonus: +20% for premium signal")
+            elif signal.confidence >= 0.8:
+                quality_multiplier = 1.1  # 10% bonus for high quality signals
+                self.logger.info(f"   Quality Bonus: +10% for high quality signal")
+            
+            adjusted_risk_percent = base_risk_percent * quality_multiplier
+            risk_amount = allocated_balance * adjusted_risk_percent
+
+            # Calculate position size based on actual risk
+            price_risk = signal.price - signal.stop_loss
+            if price_risk <= 0:
+                self.logger.warning("❌ Invalid price risk calculation")
+                return 0.0
+            
+            position_size = risk_amount / price_risk
+            
+            self.logger.info(f"   Base Risk %: {base_risk_percent*100:.2f}%")
+            self.logger.info(f"   Quality Multiplier: {quality_multiplier:.1f}x")
+            self.logger.info(f"   Adjusted Risk %: {adjusted_risk_percent*100:.2f}%")
+            self.logger.info(f"   Risk Amount: ${risk_amount:.2f} (from ${allocated_balance:.2f} allocated)")
+            self.logger.info(f"   Price Risk: ${price_risk:.4f}")
+            self.logger.info(f"   Raw Position Size: {position_size:.8f}")
+            
+            # After calculating position_size, ensure it meets minimum requirements
+            min_notional = self.config.min_notional_usdt
+            current_price = signal.price
+            
+            # Calculate minimum quantity needed to meet notional requirement
+            min_quantity_for_notional = min_notional / current_price
+            
+            # Use the larger of calculated position or minimum required
+            if position_size < min_quantity_for_notional:
+                self.logger.info(f"   Adjusting position size from {position_size:.8f} to {min_quantity_for_notional:.8f} "
+                               f"to meet minimum notional requirement of ${min_notional}")
+                position_size = min_quantity_for_notional
+            
+            # Format quantity according to symbol requirements
+            formatted_position_size = self._format_quantity(signal.symbol, position_size)
+            
+            final_trade_value = formatted_position_size * signal.price
+            
+            self.logger.info(f"   Formatted Position Size: {formatted_position_size:.8f}")
+            self.logger.info(f"   Final Trade Value: ${final_trade_value:.2f}")
+            
+            return formatted_position_size
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error calculating enhanced position size: {e}")
+            return 0.0
+    
+    def calculate_position_size(self, signal: TradingSignal, balance: float) -> float:
+        """Wrapper for backward compatibility with formatting."""
+        return self.calculate_enhanced_position_size(signal, balance)
+    
+    # ...rest of the methods remain the same...
     
     def validate_trade(self, signal: TradingSignal, current_balance: float) -> bool:
         """
@@ -181,7 +356,7 @@ class EnhancedRiskManagementService(IRiskManager):
     
     def calculate_enhanced_position_size(self, signal: TradingSignal, balance: float) -> float:
         """
-        Calculate enhanced position size with quality-based adjustments.
+        Calculate enhanced position size with quality-based adjustments and proper formatting.
         """
         try:
             self.logger.info(f"💰 ENHANCED POSITION SIZE CALCULATION for {signal.symbol}")
@@ -228,8 +403,7 @@ class EnhancedRiskManagementService(IRiskManager):
             self.logger.info(f"   Adjusted Risk %: {adjusted_risk_percent*100:.2f}%")
             self.logger.info(f"   Risk Amount: ${risk_amount:.2f} (from ${allocated_balance:.2f} allocated)")
             self.logger.info(f"   Price Risk: ${price_risk:.4f}")
-            self.logger.info(f"   Position Size: {position_size:.6f}")
-            self.logger.info(f"   Trade Value: ${position_size * signal.price:.2f}")
+            self.logger.info(f"   Raw Position Size: {position_size:.8f}")
             
             # After calculating position_size, ensure it meets minimum requirements
             min_notional = self.config.min_notional_usdt
@@ -240,15 +414,27 @@ class EnhancedRiskManagementService(IRiskManager):
             
             # Use the larger of calculated position or minimum required
             if position_size < min_quantity_for_notional:
-                self.logger.info(f"Adjusting position size from {position_size:.8f} to {min_quantity_for_notional:.8f} "
+                self.logger.info(f"   Adjusting position size from {position_size:.8f} to {min_quantity_for_notional:.8f} "
                                f"to meet minimum notional requirement of ${min_notional}")
                 position_size = min_quantity_for_notional
             
-            return position_size
+            # Format quantity according to symbol requirements
+            formatted_position_size = self._format_quantity(signal.symbol, position_size)
+            
+            final_trade_value = formatted_position_size * signal.price
+            
+            self.logger.info(f"   Formatted Position Size: {formatted_position_size:.8f}")
+            self.logger.info(f"   Final Trade Value: ${final_trade_value:.2f}")
+            
+            return formatted_position_size
             
         except Exception as e:
             self.logger.error(f"❌ Error calculating enhanced position size: {e}")
             return 0.0
+    
+    def calculate_position_size(self, signal: TradingSignal, balance: float) -> float:
+        """Wrapper for backward compatibility with formatting."""
+        return self.calculate_enhanced_position_size(signal, balance)
     
     def _validate_enhanced_trade_value(self, trade_value: float, balance: float, signal: TradingSignal) -> bool:
         """Enhanced trade value validation with quality considerations."""
@@ -302,10 +488,6 @@ class EnhancedRiskManagementService(IRiskManager):
         
         self.logger.info(f"✅ PASSED - Trade value within portfolio risk limits")
         return True
-    
-    def calculate_position_size(self, signal: TradingSignal, balance: float) -> float:
-        """Wrapper for backward compatibility."""
-        return self.calculate_enhanced_position_size(signal, balance)
     
     def calculate_stop_loss(self, signal: TradingSignal) -> float:
         """Calculate dynamic stop loss based on ATR and market conditions."""
