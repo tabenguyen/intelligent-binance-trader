@@ -5,7 +5,7 @@ Notification Service - Single Responsibility: Handle notifications.
 import logging
 import requests
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union, Any
 
 from ..core.interfaces import INotificationService
 from ..models import Trade, TradingSignal
@@ -189,19 +189,29 @@ class TelegramNotificationService(INotificationService):
             self.logger.error(f"Error sending Telegram signal notification: {e}")
             self.fallback.send_signal_notification(signal, trade_value, position_size)
     
-    def send_error_notification(self, error: str) -> None:
+    def send_error_notification(self, error: Union[str, dict, Exception, Any]) -> None:
         """Send error notification."""
         try:
-            message = f"🚨 <b>Trading Bot Error</b>\n<code>{error}</code>"
+            # Ensure error is a string - handle cases where dict or other types might be passed
+            if isinstance(error, dict):
+                error_str = str(error)
+            elif isinstance(error, Exception):
+                error_str = str(error)
+            else:
+                error_str = str(error) if error is not None else "Unknown error"
+                
+            message = f"🚨 <b>Trading Bot Error</b>\n<code>{error_str}</code>"
             success = self._send_message(message)
             
             # Always also log errors
             if not success:
-                self.fallback.send_error_notification(error)
+                self.fallback.send_error_notification(error_str)
                 
         except Exception as e:
             self.logger.error(f"Error sending Telegram error notification: {e}")
-            self.fallback.send_error_notification(error)
+            # Ensure we pass a string to the fallback
+            error_str = str(error) if error is not None else "Unknown error"
+            self.fallback.send_error_notification(error_str)
     
     def send_system_notification(self, message: str, level: str = "INFO") -> None:
         """Send system notification."""
@@ -297,9 +307,17 @@ class CompositeNotificationService(INotificationService):
     
     def send_error_notification(self, error: str) -> None:
         """Send error notification to all services."""
+        # Ensure error is a string - handle cases where dict or other types might be passed
+        if isinstance(error, dict):
+            error_str = str(error)
+        elif isinstance(error, Exception):
+            error_str = str(error)
+        else:
+            error_str = str(error) if error is not None else "Unknown error"
+            
         for service in self.services:
             try:
-                service.send_error_notification(error)
+                service.send_error_notification(error_str)
             except Exception as e:
                 self.logger.error(f"Error in notification service {service.__class__.__name__}: {e}")
     
@@ -412,7 +430,15 @@ class LoggingNotificationService(INotificationService):
     def send_error_notification(self, error: str) -> None:
         """Send error notification."""
         try:
-            self.logger.error(f"🚨 TRADING ERROR: {error}")
+            # Ensure error is a string - handle cases where dict or other types might be passed
+            if isinstance(error, dict):
+                error_str = str(error)
+            elif isinstance(error, Exception):
+                error_str = str(error)
+            else:
+                error_str = str(error) if error is not None else "Unknown error"
+                
+            self.logger.error(f"🚨 TRADING ERROR: {error_str}")
         except Exception as e:
             self.logger.critical(f"Failed to send error notification: {e}")
     
@@ -622,8 +648,10 @@ class TwitterNotificationService(INotificationService):
             
             if tweet_id:
                 # Store the tweet ID for later reply when trade completes
-                self.signal_tweets[signal.symbol] = tweet_id
-                self.logger.info(f"📡 Signal tweet posted for {signal.symbol}: {tweet_id}")
+                # Ensure symbol is a string (defensive programming)
+                symbol_key = str(signal.symbol) if signal.symbol else "UNKNOWN"
+                self.signal_tweets[symbol_key] = tweet_id
+                self.logger.info(f"📡 Signal tweet posted for {symbol_key}: {tweet_id}")
             else:
                 # Fallback to logging if Twitter fails
                 self.fallback.send_signal_notification(signal, trade_value, position_size)
@@ -654,14 +682,16 @@ class TwitterNotificationService(INotificationService):
             )
             
             # Try to reply to the original signal tweet
-            original_tweet_id = self.signal_tweets.get(trade.symbol)
+            symbol_key = str(trade.symbol) if trade.symbol else "UNKNOWN"
+            original_tweet_id = self.signal_tweets.get(symbol_key)
             
             if original_tweet_id:
                 reply_tweet_id = self._post_tweet(message, reply_to_tweet_id=original_tweet_id)
                 if reply_tweet_id:
-                    self.logger.info(f"📱 Trade completion reply posted for {trade.symbol}")
+                    self.logger.info(f"📱 Trade completion reply posted for {symbol_key}")
                     # Clean up the stored tweet ID
-                    del self.signal_tweets[trade.symbol]
+                    if symbol_key in self.signal_tweets:
+                        del self.signal_tweets[symbol_key]
                 else:
                     # Fallback to logging if reply fails
                     self.fallback.send_trade_notification(trade)
@@ -678,16 +708,26 @@ class TwitterNotificationService(INotificationService):
     def send_error_notification(self, error: str) -> None:
         """Send error notification."""
         try:
-            message = f"🚨 TRADING BOT ERROR\n{error[:200]}..."  # Truncate for Twitter
+            # Ensure error is a string - handle cases where dict or other types might be passed
+            if isinstance(error, dict):
+                error_str = str(error)
+            elif isinstance(error, Exception):
+                error_str = str(error)
+            else:
+                error_str = str(error) if error is not None else "Unknown error"
+                
+            message = f"🚨 TRADING BOT ERROR\n{error_str[:200]}..."  # Truncate for Twitter
             tweet_id = self._post_tweet(message)
             
             # Always also log errors
             if not tweet_id:
-                self.fallback.send_error_notification(error)
+                self.fallback.send_error_notification(error_str)
                 
         except Exception as e:
             self.logger.error(f"Error sending Twitter error notification: {e}")
-            self.fallback.send_error_notification(error)
+            # Ensure we pass a string to the fallback
+            error_str = str(error) if error is not None else "Unknown error"
+            self.fallback.send_error_notification(error_str)
     
     def send_system_notification(self, message: str, level: str = "INFO") -> None:
         """Send system notification."""

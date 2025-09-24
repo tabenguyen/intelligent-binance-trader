@@ -45,6 +45,7 @@ class TradingBot:
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.running = False
+        self._last_watchlist_quality = "N/A"  # Track last watchlist quality metrics
         
         # Initialize services (Dependency Injection)
         self.market_data_provider: IMarketDataProvider = BinanceMarketDataService(
@@ -72,6 +73,15 @@ class TradingBot:
         
         # Initialize strategies
         self.strategies: List[IStrategy] = self._initialize_strategies()
+        
+        # Load initial watchlist from file (will be refreshed during trading cycle)
+        if not self.config.symbols:
+            initial_symbols = self._load_watchlist()
+            if initial_symbols:
+                self.config.symbols = initial_symbols
+                self.logger.info(f"📋 Loaded initial watchlist: {len(initial_symbols)} symbols")
+            else:
+                self.logger.warning("⚠️  No initial watchlist found - will refresh on first cycle")
         
         self.logger.info(f"Trading Bot initialized with {len(self.strategies)} strategies")
     
@@ -279,12 +289,19 @@ class TradingBot:
         # STEP 3: Scan for new opportunities
         self.logger.info("🔹 STEP 3: SCANNING FOR NEW OPPORTUNITIES")
         self.logger.info("-" * 40)
+        
+        # Get symbols from current watchlist (already loaded with quality filtering)
         symbols_to_scan = [symbol for symbol in self.config.symbols 
                           if not self.position_manager.has_position(symbol)]
         
         if symbols_to_scan:
-            self.logger.info(f"🔍 Scanning {len(symbols_to_scan)} symbols for opportunities")
-            self.logger.info(f"📋 Symbols: {', '.join(symbols_to_scan)}")
+            self.logger.info(f"🔍 Scanning {len(symbols_to_scan)} quality-filtered symbols for opportunities")
+            
+            # Show quality info if available from recent refresh
+            if hasattr(self, '_last_watchlist_quality'):
+                self.logger.info(f"📊 Watchlist Quality: {self._last_watchlist_quality}")
+            
+            self.logger.info(f"📋 Symbols: {', '.join(symbols_to_scan[:10])}{'...' if len(symbols_to_scan) > 10 else ''}")
             
             # Collect all signals first
             all_signals = []
@@ -364,31 +381,58 @@ class TradingBot:
             self.logger.info("💼 All symbols have active positions - no scanning needed")
 
     def _refresh_watchlist(self) -> None:
-        """Refresh symbols using 4-criteria ranking system."""
+        """Refresh symbols using 4-criteria ranking system with quality filtering."""
         try:
-            from .market_watcher import update_watchlist_with_ranking
-            self.logger.info("📝 Refreshing watchlist using 4-criteria ranking...")
-            top_ranked = update_watchlist_with_ranking(limit=self.config.watchlist_top_movers_limit)
-            symbols = top_ranked if top_ranked else self._read_watchlist_file()
-            if symbols:
+            from .market_watcher import update_watchlist_from_top_movers
+            self.logger.info("📝 Refreshing watchlist using 4-criteria quality ranking...")
+            
+            # Use quality-based filtering instead of hard limits
+            # Get good opportunities (score >= 50) with reasonable limit
+            top_ranked = update_watchlist_from_top_movers(
+                limit=self.config.watchlist_top_movers_limit,
+                min_score=50.0  # Only include coins with good quality scores
+            )
+            
+            if top_ranked:
+                # Extract symbols from the detailed coin data
+                symbols = [coin['symbol'] for coin in top_ranked if coin.get('symbol')]
+                
                 prev_count = len(self.config.symbols)
                 self.config.symbols = symbols
-                self.logger.info(f"✅ Watchlist updated: {prev_count} -> {len(symbols)} symbols")
-                self.logger.info(f"📋 Current watchlist: {', '.join(symbols)}")
+                
+                # Log quality summary
+                avg_score = sum(coin['composite_score'] for coin in top_ranked) / len(top_ranked)
+                high_quality = len([coin for coin in top_ranked if coin['composite_score'] >= 70])
+                
+                # Store quality info for later reference
+                self._last_watchlist_quality = f"Avg Score {avg_score:.1f}, High Quality: {high_quality}/{len(symbols)}"
+                
+                self.logger.info(f"✅ Quality-based watchlist updated: {prev_count} -> {len(symbols)} symbols")
+                self.logger.info(f"📊 Quality Summary: Avg Score {avg_score:.1f}, High Quality: {high_quality}/{len(symbols)}")
+                self.logger.info(f"📋 Selected symbols: {', '.join(symbols[:10])}{'...' if len(symbols) > 10 else ''}")
             else:
-                self.logger.warning("⚠️  Watchlist refresh returned no symbols; keeping existing list")
+                self.logger.warning("⚠️  No quality opportunities found; keeping existing watchlist")
+                # Fallback to file-based watchlist if available
+                symbols = self._load_watchlist()
+                if symbols:
+                    self.config.symbols = symbols
+                    self.logger.info(f"📋 Using fallback watchlist: {len(symbols)} symbols")
+                
         except Exception as e:
             self.logger.warning(f"⚠️  Could not refresh watchlist: {e}")
+            # Fallback to loading from file
+            symbols = self._load_watchlist()
+            if symbols:
+                self.config.symbols = symbols
+                self.logger.info(f"📋 Using file-based watchlist: {len(symbols)} symbols")
 
-    def _read_watchlist_file(self) -> List[str]:
-        """Read symbols from configured watchlist file."""
+    def _load_watchlist(self) -> List[str]:
+        """Load symbols from watchlist file (JSON or fallback to text format)."""
         try:
             # Try mode-specific watchlist first
             path = self.config.get_mode_specific_watchlist_file()
             try:
-                with open(path, 'r') as f:
-                    lines = [ln.strip() for ln in f.readlines()]
-                symbols = [s for s in lines if s]
+                symbols = self._read_watchlist_file(path)
                 if symbols:
                     return symbols
             except FileNotFoundError:
@@ -396,11 +440,31 @@ class TradingBot:
             
             # Fallback to generic watchlist
             path = self.config.watchlist_file
+            return self._read_watchlist_file(path)
+        except Exception:
+            return []
+
+    def _read_watchlist_file(self, path: str) -> List[str]:
+        """Read watchlist from JSON file, with fallback to text format."""
+        try:
+            import json
+            # Try JSON format first
+            with open(path, 'r') as f:
+                data = json.load(f)
+            
+            # Extract symbols from JSON structure
+            if isinstance(data, dict) and 'symbols' in data:
+                return [symbol_data['symbol'] for symbol_data in data['symbols'] if symbol_data.get('symbol')]
+            elif isinstance(data, list):
+                # Handle legacy list format
+                return [str(item) for item in data if item]
+            else:
+                return []
+        except (json.JSONDecodeError, KeyError):
+            # Fallback to text format
             with open(path, 'r') as f:
                 lines = [ln.strip() for ln in f.readlines()]
             return [s for s in lines if s]
-        except Exception:
-            return []
     
     def _get_market_data(self, symbol: str) -> Optional[MarketData]:
         """Get comprehensive market data for a symbol."""

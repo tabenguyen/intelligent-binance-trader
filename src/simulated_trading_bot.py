@@ -543,14 +543,12 @@ class SimulatedTradingBot:
             self.logger.warning(f"⚠️  Could not refresh watchlist: {e}")
 
     def _read_watchlist_file(self) -> List[str]:
-        """Read symbols from configured watchlist file."""
+        """Read symbols from configured watchlist file (JSON or fallback to text format)."""
         try:
             # Try mode-specific watchlist first
             path = self.config.get_mode_specific_watchlist_file()
             try:
-                with open(path, 'r') as f:
-                    lines = [ln.strip() for ln in f.readlines()]
-                symbols = [s for s in lines if s]
+                symbols = self._load_symbols_from_file(path)
                 if symbols:
                     return symbols
             except FileNotFoundError:
@@ -558,8 +556,28 @@ class SimulatedTradingBot:
             
             # Fallback to generic watchlist
             path = self.config.watchlist_file
+            return self._load_symbols_from_file(path)
+        except Exception:
+            return []
+
+    def _load_symbols_from_file(self, path: str) -> List[str]:
+        """Load symbols from JSON or text file."""
+        try:
+            import json
+            # Try JSON format first
+            with open(path, 'r') as f:
+                data = json.load(f)
+            
+            # Extract symbols from JSON structure
+            if isinstance(data, dict) and 'symbols' in data:
+                return [symbol_data['symbol'] for symbol_data in data['symbols'] if symbol_data.get('symbol')]
+            elif isinstance(data, list):
+                # Handle legacy list format
+                return [str(item) for item in data if item]
+            else:
+                return []
+        except (json.JSONDecodeError, KeyError):
+            # Fallback to text format
             with open(path, 'r') as f:
                 lines = [ln.strip() for ln in f.readlines()]
             return [s for s in lines if s]
-        except Exception:
-            return []
