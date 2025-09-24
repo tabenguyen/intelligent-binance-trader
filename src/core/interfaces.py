@@ -4,7 +4,7 @@ Following the Interface Segregation Principle (ISP) - each interface should be f
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any
+from typing import Protocol, Optional, List, Dict, Any, Union
 from datetime import datetime
 
 from ..models import (
@@ -167,8 +167,14 @@ class INotificationService(ABC):
         pass
     
     @abstractmethod
-    def send_error_notification(self, error: str) -> None:
-        """Send error notification."""
+    def send_error_notification(self, error: Union[str, dict, Exception, Any]) -> None:
+        """
+        Send error notification.
+        
+        Args:
+            error: Error to notify about. Can be string, dict, Exception, or any object.
+                  Will be converted to string representation for display.
+        """
         pass
     
     def send_system_notification(self, message: str, level: str = "INFO") -> None:

@@ -67,12 +67,12 @@ class TradingConfig:
     limit_order_retry_delay: int = 30  # seconds
     enable_oco_orders: bool = True  # One-Cancels-Other orders for stop loss and take profit
     
-    # Logging
+     # Logging
     log_level: str = "INFO"
     log_file: Optional[str] = None
     
     # Paths
-    watchlist_file: str = "config/watchlist.txt"
+    watchlist_file: str = "config/watchlist.json"
     active_trades_file: str = "data/active_trades.json"
     
     # Watchlist Management
@@ -93,11 +93,11 @@ class TradingConfig:
     def get_mode_specific_watchlist_file(self) -> str:
         """Get watchlist file path based on trading mode."""
         if self.simulation_mode:
-            return "config/watchlist_simulation.txt"
+            return "config/watchlist_simulation.json"
         elif self.testnet:
-            return "config/watchlist_testnet.txt"
+            return "config/watchlist_testnet.json"
         else:
-            return "config/watchlist_live.txt"
+            return "config/watchlist_live.json"
     
     def get_mode_specific_active_trades_file(self) -> str:
         """Get active trades file path based on trading mode."""

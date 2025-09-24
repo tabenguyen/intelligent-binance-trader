@@ -2,7 +2,9 @@
 MarketWatcher - fetches top movers from Binance and updates watchlist.
 """
 
+import json
 import logging
+from datetime import datetime
 from typing import List, Optional, Dict, Tuple
 from pathlib import Path
 import numpy as np
@@ -115,13 +117,54 @@ class MarketWatcher:
             self.logger.error(f"Failed to check symbol {symbol} status: {e}")
             return False
 
-    def write_watchlist(self, symbols: List[str], filepath: str) -> None:
-        """Write symbols to watchlist file, one per line, overwrite existing."""
+    def write_watchlist(self, symbols_data: List[Dict], filepath: str) -> None:
+        """Write symbols data to watchlist file in JSON format with detailed conditions, overwrite existing."""
         path = Path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
-        text = "\n".join(symbols)
-        path.write_text(text)
-        self.logger.info(f"Updated watchlist with {len(symbols)} symbols at {filepath}")
+        
+        # Format watchlist with detailed conditions
+        watchlist = {
+            "timestamp": datetime.now().isoformat(),
+            "total_symbols": len(symbols_data),
+            "quote_asset": self.quote,
+            "symbols": []
+        }
+        
+        for data in symbols_data:
+            symbol_info = {
+                "symbol": data['symbol'],
+                "current_price": data['current_price'],
+                "composite_score": data['composite_score'],
+                "conditions": {
+                    "risk_reward_ratio": {
+                        "value": data['risk_reward_ratio'],
+                        "status": self._get_rr_status(data['risk_reward_ratio']),
+                        "description": "Risk to reward ratio based on support/resistance levels"
+                    },
+                    "relative_strength_vs_btc": {
+                        "value": data['relative_strength_vs_btc'],
+                        "status": self._get_relative_strength_status(data['relative_strength_vs_btc']),
+                        "description": "Performance relative to BTC over 7 days (%)"
+                    },
+                    "trend_strength_adx": {
+                        "value": data['trend_strength_adx'],
+                        "status": self._get_adx_status(data['trend_strength_adx']),
+                        "description": "Average Directional Index - trend strength (0-100)"
+                    },
+                    "volume_confirmation": {
+                        "value": data['volume_confirmation'],
+                        "status": self._get_volume_status(data['volume_confirmation']),
+                        "description": "Volume ratio of recent vs average (recent 5h vs previous 20h)"
+                    }
+                }
+            }
+            watchlist["symbols"].append(symbol_info)
+        
+        # Write JSON to file
+        with open(path, 'w') as f:
+            json.dump(watchlist, f, indent=2, ensure_ascii=False)
+        
+        self.logger.info(f"Updated JSON watchlist with {len(symbols_data)} symbols at {filepath}")
 
     def calculate_risk_reward_ratio(self, symbol: str, current_price: float) -> Optional[float]:
         """Calculate Risk:Reward ratio for a symbol."""
@@ -172,10 +215,14 @@ class MarketWatcher:
             # Calculate percentage change over the period
             symbol_start = float(symbol_klines[0][4])  # Close price of first candle
             symbol_end = float(symbol_klines[-1][4])   # Close price of last candle
-            symbol_change = (symbol_end - symbol_start) / symbol_start * 100
             
             btc_start = float(btc_klines[0][4])
             btc_end = float(btc_klines[-1][4])
+            
+            if symbol_start <= 0 or btc_start <= 0:
+                return None
+                
+            symbol_change = (symbol_end - symbol_start) / symbol_start * 100
             btc_change = (btc_end - btc_start) / btc_start * 100
             
             # Relative strength = symbol performance - BTC performance
@@ -289,8 +336,23 @@ class MarketWatcher:
         self.logger.info("🏆 TOP RANKED SYMBOLS BY 4-CRITERIA ANALYSIS")
         self.logger.info("="*60)
         
+        # Show statistics
+        if ranked_symbols:
+            scores = [data['composite_score'] for data in ranked_symbols]
+            avg_score = sum(scores) / len(scores)
+            high_quality = len([s for s in scores if s >= 70])
+            good_quality = len([s for s in scores if s >= 50])
+            
+            self.logger.info(f"📊 Analysis Summary:")
+            self.logger.info(f"   Total analyzed: {len(ranked_symbols)}")
+            self.logger.info(f"   Average score: {avg_score:.2f}")
+            self.logger.info(f"   High quality (≥70): {high_quality}")
+            self.logger.info(f"   Good quality (≥50): {good_quality}")
+            self.logger.info("-"*60)
+        
         for i, data in enumerate(ranked_symbols[:10], 1):  # Show top 10
-            self.logger.info(f"{i:2d}. {data['symbol']:<12} - Score: {data['composite_score']:6.2f}")
+            quality_indicator = "🌟" if data['composite_score'] >= 70 else "⭐" if data['composite_score'] >= 50 else "💫"
+            self.logger.info(f"{i:2d}. {quality_indicator} {data['symbol']:<12} - Score: {data['composite_score']:6.2f}")
             
             # Fixed string formatting for the detailed view
             rr_display = f"{data['risk_reward_ratio']:>6.2f}" if data['risk_reward_ratio'] is not None else "   N/A"
@@ -372,8 +434,10 @@ class MarketWatcher:
             
             # Calculate smoothed values
             atr = self._ema(tr, period)
-            plus_di = 100 * self._ema(plus_dm, period) / atr
-            minus_di = 100 * self._ema(minus_dm, period) / atr
+            # Prevent division by zero warnings
+            atr_safe = np.where(atr > 1e-10, atr, 1e-10)
+            plus_di = 100 * self._ema(plus_dm, period) / atr_safe
+            minus_di = 100 * self._ema(minus_dm, period) / atr_safe
             
             # Calculate ADX
             dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
@@ -396,10 +460,66 @@ class MarketWatcher:
         
         return ema
 
-    def get_top_movers_with_ranking(self, limit: int = 20) -> List[str]:
-        """Get top movers and apply 4-criteria ranking."""
+    def _get_rr_status(self, rr_ratio: Optional[float]) -> str:
+        """Get risk-reward ratio status description."""
+        if rr_ratio is None:
+            return "Unknown"
+        elif rr_ratio >= 3.0:
+            return "Excellent"
+        elif rr_ratio >= 2.0:
+            return "Good"
+        elif rr_ratio >= 1.5:
+            return "Fair"
+        else:
+            return "Poor"
+
+    def _get_relative_strength_status(self, rel_strength: Optional[float]) -> str:
+        """Get relative strength vs BTC status description."""
+        if rel_strength is None:
+            return "Unknown"
+        elif rel_strength >= 10.0:
+            return "Very Strong"
+        elif rel_strength >= 5.0:
+            return "Strong"
+        elif rel_strength >= 0.0:
+            return "Positive"
+        elif rel_strength >= -5.0:
+            return "Weak"
+        else:
+            return "Very Weak"
+
+    def _get_adx_status(self, adx: Optional[float]) -> str:
+        """Get ADX trend strength status description."""
+        if adx is None:
+            return "Unknown"
+        elif adx >= 50:
+            return "Very Strong Trend"
+        elif adx >= 25:
+            return "Strong Trend"
+        elif adx >= 15:
+            return "Weak Trend"
+        else:
+            return "No Trend"
+
+    def _get_volume_status(self, volume_conf: Optional[float]) -> str:
+        """Get volume confirmation status description."""
+        if volume_conf is None:
+            return "Unknown"
+        elif volume_conf >= 3.0:
+            return "Very High Volume"
+        elif volume_conf >= 2.0:
+            return "High Volume"
+        elif volume_conf >= 1.5:
+            return "Above Average"
+        elif volume_conf >= 1.0:
+            return "Normal"
+        else:
+            return "Below Average"
+
+    def get_top_movers_with_ranking(self, limit: int = 20, min_score: float = 50.0) -> List[Dict]:
+        """Get top movers and apply 4-criteria ranking, filtering by quality."""
         # First get top volume movers as candidates
-        candidates = self.get_top_movers(limit * 2)  # Get more candidates for filtering
+        candidates = self.get_top_movers(limit * 3)  # Get more candidates for better filtering
         
         if not candidates:
             return []
@@ -407,23 +527,38 @@ class MarketWatcher:
         # Apply 4-criteria ranking
         ranked_symbols = self.get_ranked_symbols(candidates)
         
-        # Return top symbols by ranking
-        return [data['symbol'] for data in ranked_symbols[:limit]]
+        # Filter by minimum score - only return good opportunities
+        good_opportunities = [
+            symbol_data for symbol_data in ranked_symbols 
+            if symbol_data['composite_score'] >= min_score
+        ]
+        
+        self.logger.info(f"Found {len(good_opportunities)} good opportunities out of {len(ranked_symbols)} analyzed symbols")
+        self.logger.info(f"Quality filter: minimum score {min_score}")
+        
+        # Return good opportunities, respecting limit as maximum but not minimum
+        return good_opportunities[:limit] if len(good_opportunities) > limit else good_opportunities
 
 
-def update_watchlist_with_ranking(limit: int = 20, config: Optional['TradingConfig'] = None) -> Optional[List[str]]:
-    """Helper to update watchlist using 4-criteria ranking system."""
+def update_watchlist_with_ranking(limit: int = 20, min_score: float = 50.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
+    """Helper to update watchlist using 4-criteria ranking system with quality filtering."""
     try:
         if config is None:
             config = TradingConfig.from_env()
         
         watcher = MarketWatcher(config.api_key, config.api_secret, config.testnet, quote="USDT")
-        top_ranked = watcher.get_top_movers_with_ranking(limit=limit)
+        top_ranked = watcher.get_top_movers_with_ranking(limit=limit, min_score=min_score)
         
         if not top_ranked:
+            logging.getLogger(__name__).info(f"No coins found meeting minimum quality score of {min_score}")
             return None
         
         watcher.write_watchlist(top_ranked, config.get_mode_specific_watchlist_file())
+        
+        # Log summary of selected opportunities
+        avg_score = sum(coin['composite_score'] for coin in top_ranked) / len(top_ranked)
+        logging.getLogger(__name__).info(f"Selected {len(top_ranked)} quality opportunities (avg score: {avg_score:.2f})")
+        
         return top_ranked
         
     except Exception as e:
@@ -442,15 +577,119 @@ def check_symbol_tradeable(symbol: str) -> bool:
         return False
 
 
-def update_watchlist_from_top_movers(limit: int = 20, config: Optional['TradingConfig'] = None) -> Optional[List[str]]:
-    """Helper to load config, fetch top movers with ranking, and update watchlist file."""
-    return update_watchlist_with_ranking(limit, config)
+def update_watchlist_from_top_movers(limit: int = 20, min_score: float = 50.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
+    """
+    Helper to load config, fetch top movers with ranking, and update watchlist file.
+    
+    Args:
+        limit: Maximum number of coins to include (not a hard requirement)
+        min_score: Minimum composite score required for a coin to be included (quality filter)
+        config: Optional trading configuration
+        
+    Returns:
+        List of selected coin data with analysis, or None if none meet criteria
+    """
+    return update_watchlist_with_ranking(limit, min_score, config)
+
+
+def get_quality_opportunities(min_score: float = 60.0, max_candidates: int = 100, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
+    """
+    Get all coins that meet quality criteria without hard limits.
+    
+    Args:
+        min_score: Minimum composite score required (default 60.0 for higher quality)
+        max_candidates: Maximum candidates to analyze (to prevent excessive API calls)
+        config: Optional trading configuration
+        
+    Returns:
+        List of all coins meeting quality criteria, sorted by score
+    """
+    try:
+        if config is None:
+            config = TradingConfig.from_env()
+        
+        watcher = MarketWatcher(config.api_key, config.api_secret, config.testnet, quote="USDT")
+        
+        # Get a larger pool of candidates
+        candidates = watcher.get_top_movers(max_candidates)
+        if not candidates:
+            return None
+        
+        # Apply 4-criteria ranking to all candidates
+        ranked_symbols = watcher.get_ranked_symbols(candidates)
+        
+        # Filter by quality - no hard limit, only quality threshold
+        quality_opportunities = [
+            symbol_data for symbol_data in ranked_symbols 
+            if symbol_data['composite_score'] >= min_score
+        ]
+        
+        logger = logging.getLogger(__name__)
+        if quality_opportunities:
+            avg_score = sum(coin['composite_score'] for coin in quality_opportunities) / len(quality_opportunities)
+            logger.info(f"Found {len(quality_opportunities)} quality opportunities (min score: {min_score}, avg: {avg_score:.2f})")
+            
+            # Log top opportunities
+            for i, coin in enumerate(quality_opportunities[:5], 1):
+                logger.info(f"  {i}. {coin['symbol']} - Score: {coin['composite_score']:.2f}")
+        else:
+            logger.info(f"No opportunities found meeting minimum quality score of {min_score}")
+        
+        return quality_opportunities
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Quality opportunities search failed: {e}")
+        return None
+
+
+def update_watchlist_with_quality_filter(min_score: float = 50.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
+    """
+    Update watchlist with all coins meeting quality criteria (no hard limit).
+    
+    Args:
+        min_score: Minimum composite score required for inclusion
+        config: Optional trading configuration
+        
+    Returns:
+        List of selected quality coins or None if none found
+    """
+    try:
+        quality_opportunities = get_quality_opportunities(min_score=min_score, config=config)
+        
+        if not quality_opportunities:
+            return None
+        
+        if config is None:
+            config = TradingConfig.from_env()
+            
+        watcher = MarketWatcher(config.api_key, config.api_secret, config.testnet, quote="USDT")
+        watcher.write_watchlist(quality_opportunities, config.get_mode_specific_watchlist_file())
+        
+        logger = logging.getLogger(__name__)
+        logger.info(f"Updated watchlist with {len(quality_opportunities)} quality opportunities")
+        
+        return quality_opportunities
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Quality watchlist update failed: {e}")
+        return None
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    symbols = update_watchlist_from_top_movers(limit=20)
+    
+    # Default to quality-based selection (no hard limit, only quality filter)
+    symbols = update_watchlist_from_top_movers(limit=50, min_score=50.0)
+    
     if symbols:
-        print("Top movers written to watchlist:")
-        for s in symbols:
-            print(s)
+        print(f"Top {len(symbols)} quality opportunities written to watchlist:")
+        for i, s in enumerate(symbols[:10], 1):  # Show top 10
+            if isinstance(s, dict):
+                print(f"{i:2d}. {s['symbol']:<12} - Score: {s['composite_score']:6.2f}")
+            else:
+                print(f"{i:2d}. {s}")
+        
+        if len(symbols) > 10:
+            print(f"... and {len(symbols) - 10} more quality opportunities")
+    else:
+        print("No quality opportunities found meeting the criteria")
