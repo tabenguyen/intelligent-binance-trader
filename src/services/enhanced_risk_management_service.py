@@ -41,7 +41,7 @@ class EnhancedRiskManagementService(IRiskManager):
         if symbol not in self._symbol_info_cache:
             try:
                 # Import here to avoid circular imports
-                from ..services.binance_market_data_service import BinanceMarketDataService
+                from .market_data_service import BinanceMarketDataService
                 
                 # Create a temporary market data service to get symbol info
                 market_service = BinanceMarketDataService(
