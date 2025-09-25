@@ -386,11 +386,11 @@ class TradingBot:
             from .market_watcher import update_watchlist_from_top_movers
             self.logger.info("📝 Refreshing watchlist using 4-criteria quality ranking...")
             
-            # Use quality-based filtering instead of hard limits
-            # Get good opportunities (score >= 50) with reasonable limit
+            # Use quality-based filtering aligned with RiskManagement standards
+            # Get quality opportunities (score >= 75) matching RiskManagement 75% confidence requirement
             top_ranked = update_watchlist_from_top_movers(
                 limit=self.config.watchlist_top_movers_limit,
-                min_score=50.0  # Only include coins with good quality scores
+                min_score=75.0  # Aligned with RiskManagement 75% confidence requirement
             )
             
             if top_ranked:

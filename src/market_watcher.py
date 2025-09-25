@@ -16,7 +16,15 @@ from .models import TradingConfig
 
 
 class MarketWatcher:
-    """Fetch top 24h movers and update watchlist file."""
+    """Fetch top 24h movers and update watchlist file using simplified 2-criteria analysis.
+    
+    SIMPLIFIED APPROACH:
+    - Uses 2-criteria system: Relative Strength vs BTC (50%) + Trend Strength ADX (50%)
+    - Provides initial quality screening (75%+ composite score)
+    - RiskManagement performs all risk-reward and volume validation at execution time
+    - Quality thresholds: 85%+ premium, 75%+ minimum (aligned with RiskManagement standards)
+    - Focus on market strength and trend quality only - execution validation handled by RiskManagement
+    """
 
     def __init__(self, api_key: str, api_secret: str, testnet: bool = True, quote: str = "USDT"):
         if testnet:
@@ -118,7 +126,7 @@ class MarketWatcher:
             return False
 
     def write_watchlist(self, symbols_data: List[Dict], filepath: str) -> None:
-        """Write symbols data to watchlist file in JSON format with detailed conditions, overwrite existing."""
+        """Write symbols data to watchlist file in JSON format with simplified 2-criteria conditions, overwrite existing."""
         path = Path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -136,11 +144,6 @@ class MarketWatcher:
                 "current_price": data['current_price'],
                 "composite_score": data['composite_score'],
                 "conditions": {
-                    "risk_reward_ratio": {
-                        "value": data['risk_reward_ratio'],
-                        "status": self._get_rr_status(data['risk_reward_ratio']),
-                        "description": "Risk to reward ratio based on support/resistance levels"
-                    },
                     "relative_strength_vs_btc": {
                         "value": data['relative_strength_vs_btc'],
                         "status": self._get_relative_strength_status(data['relative_strength_vs_btc']),
@@ -150,11 +153,6 @@ class MarketWatcher:
                         "value": data['trend_strength_adx'],
                         "status": self._get_adx_status(data['trend_strength_adx']),
                         "description": "Average Directional Index - trend strength (0-100)"
-                    },
-                    "volume_confirmation": {
-                        "value": data['volume_confirmation'],
-                        "status": self._get_volume_status(data['volume_confirmation']),
-                        "description": "Volume ratio of recent vs average (recent 5h vs previous 20h)"
                     }
                 }
             }
@@ -164,41 +162,9 @@ class MarketWatcher:
         with open(path, 'w') as f:
             json.dump(watchlist, f, indent=2, ensure_ascii=False)
         
-        self.logger.info(f"Updated JSON watchlist with {len(symbols_data)} symbols at {filepath}")
+        self.logger.info(f"Updated JSON watchlist with {len(symbols_data)} symbols (2-criteria analysis) at {filepath}")
 
-    def calculate_risk_reward_ratio(self, symbol: str, current_price: float) -> Optional[float]:
-        """Calculate Risk:Reward ratio for a symbol."""
-        try:
-            # Get klines for technical analysis
-            klines = self.client.klines(symbol, "1h", limit=100)
-            if not klines:
-                return None
-            
-            closes = [float(k[4]) for k in klines]
-            highs = [float(k[2]) for k in klines]
-            lows = [float(k[3]) for k in klines]
-            
-            # Calculate support and resistance levels
-            support_level = self._find_support_level(lows, current_price)
-            resistance_level = self._find_resistance_level(highs, current_price)
-            
-            if not support_level or not resistance_level:
-                return None
-            
-            # Risk = distance from current price to support (stop loss)
-            risk = abs(current_price - support_level)
-            
-            # Reward = distance from current price to resistance (take profit)
-            reward = abs(resistance_level - current_price)
-            
-            if risk <= 0:
-                return None
-            
-            return reward / risk
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating R:R for {symbol}: {e}")
-            return None
+
 
     def calculate_relative_strength_vs_btc(self, symbol: str, days: int = 7) -> Optional[float]:
         """Calculate relative strength compared to BTC over specified days."""
@@ -251,38 +217,13 @@ class MarketWatcher:
             self.logger.error(f"Error calculating ADX for {symbol}: {e}")
             return None
 
-    def calculate_volume_confirmation(self, symbol: str) -> Optional[float]:
-        """Calculate volume confirmation ratio (recent volume vs average)."""
-        try:
-            klines = self.client.klines(symbol, "1h", limit=25)  # 25 hours of data
-            if not klines or len(klines) < 25:
-                return None
-            
-            volumes = [float(k[5]) for k in klines]
-            
-            # Recent volume (last 5 candles average)
-            recent_volume = np.mean(volumes[-5:])
-            
-            # Average volume (previous 20 candles)
-            avg_volume = np.mean(volumes[:-5])
-            
-            if avg_volume <= 0:
-                return None
-            
-            # Volume ratio (how much higher recent volume is vs average)
-            volume_ratio = recent_volume / avg_volume
-            
-            return volume_ratio
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating volume confirmation for {symbol}: {e}")
-            return None
+
 
     def get_ranked_symbols(self, symbols: List[str]) -> List[Dict]:
-        """Rank symbols based on 4 criteria and return sorted list."""
+        """Rank symbols based on simplified 2-criteria system and return sorted list."""
         ranked_symbols = []
         
-        self.logger.info(f"Analyzing {len(symbols)} symbols with 4-criteria ranking...")
+        self.logger.info(f"Analyzing {len(symbols)} symbols with 2-criteria ranking...")
         
         for i, symbol in enumerate(symbols, 1):
             try:
@@ -292,37 +233,29 @@ class MarketWatcher:
                 ticker = self.client.ticker_price(symbol)
                 current_price = float(ticker['price'])
                 
-                # Calculate all 4 criteria
-                rr_ratio = self.calculate_risk_reward_ratio(symbol, current_price)
+                # Calculate simplified 2 criteria only
                 rel_strength = self.calculate_relative_strength_vs_btc(symbol)
                 adx = self.calculate_trend_strength_adx(symbol)
-                volume_conf = self.calculate_volume_confirmation(symbol)
                 
-                # Calculate composite score
-                score = self._calculate_composite_score(rr_ratio, rel_strength, adx, volume_conf)
+                # Calculate composite score with simplified criteria
+                score = self._calculate_composite_score(rel_strength, adx)
                 
                 symbol_data = {
                     'symbol': symbol,
                     'current_price': current_price,
-                    'risk_reward_ratio': rr_ratio,
                     'relative_strength_vs_btc': rel_strength,
                     'trend_strength_adx': adx,
-                    'volume_confirmation': volume_conf,
                     'composite_score': score
                 }
                 
                 ranked_symbols.append(symbol_data)
                 
-                # Fixed string formatting
-                rr_str = f"{rr_ratio:.2f}" if rr_ratio is not None else "N/A"
+                # Fixed string formatting for simplified criteria
                 rel_str = f"{rel_strength:.2f}" if rel_strength is not None else "N/A"
                 adx_str = f"{adx:.2f}" if adx is not None else "N/A"
-                vol_str = f"{volume_conf:.2f}" if volume_conf is not None else "N/A"
                 
-                self.logger.info(f"  R:R={rr_str}, "
-                               f"RelStr={rel_str}%, "
+                self.logger.info(f"  RelStr={rel_str}%, "
                                f"ADX={adx_str}, "
-                               f"Vol={vol_str}x, "
                                f"Score={score:.2f}")
                 
             except Exception as e:
@@ -333,57 +266,51 @@ class MarketWatcher:
         ranked_symbols.sort(key=lambda x: x['composite_score'], reverse=True)
         
         self.logger.info("="*60)
-        self.logger.info("🏆 TOP RANKED SYMBOLS BY 4-CRITERIA ANALYSIS")
+        self.logger.info("🏆 TOP RANKED SYMBOLS BY 2-CRITERIA ANALYSIS")
         self.logger.info("="*60)
         
         # Show statistics
         if ranked_symbols:
             scores = [data['composite_score'] for data in ranked_symbols]
             avg_score = sum(scores) / len(scores)
-            high_quality = len([s for s in scores if s >= 70])
-            good_quality = len([s for s in scores if s >= 50])
             
-            self.logger.info(f"📊 Analysis Summary:")
+            self.logger.info(f"📊 Analysis Summary (aligned with RiskManagement standards):")
             self.logger.info(f"   Total analyzed: {len(ranked_symbols)}")
             self.logger.info(f"   Average score: {avg_score:.2f}")
-            self.logger.info(f"   High quality (≥70): {high_quality}")
-            self.logger.info(f"   Good quality (≥50): {good_quality}")
+            self.logger.info(f"   Premium quality (≥85): {len([s for s in scores if s >= 85])}")
+            self.logger.info(f"   Minimum quality (≥75): {len([s for s in scores if s >= 75])}")
             self.logger.info("-"*60)
         
         for i, data in enumerate(ranked_symbols[:10], 1):  # Show top 10
-            quality_indicator = "🌟" if data['composite_score'] >= 70 else "⭐" if data['composite_score'] >= 50 else "💫"
+            # Aligned with RiskManagement: 85%+ premium, 75%+ minimum
+            quality_indicator = "🌟" if data['composite_score'] >= 85 else "⭐" if data['composite_score'] >= 75 else "💫"
             self.logger.info(f"{i:2d}. {quality_indicator} {data['symbol']:<12} - Score: {data['composite_score']:6.2f}")
             
-            # Fixed string formatting for the detailed view
-            rr_display = f"{data['risk_reward_ratio']:>6.2f}" if data['risk_reward_ratio'] is not None else "   N/A"
+            # Fixed string formatting for the simplified detailed view
             rel_display = f"{data['relative_strength_vs_btc']:>6.2f}" if data['relative_strength_vs_btc'] is not None else "   N/A"
             adx_display = f"{data['trend_strength_adx']:>6.2f}" if data['trend_strength_adx'] is not None else "   N/A"
-            vol_display = f"{data['volume_confirmation']:>6.2f}" if data['volume_confirmation'] is not None else "   N/A"
             
-            self.logger.info(f"     R:R: {rr_display}, "
-                           f"RelStr: {rel_display}%, "
-                           f"ADX: {adx_display}, "
-                           f"Vol: {vol_display}x")
+            self.logger.info(f"     RelStr: {rel_display}%, "
+                           f"ADX: {adx_display}")
         
         return ranked_symbols
 
-    def _calculate_composite_score(self, rr_ratio: Optional[float], rel_strength: Optional[float], 
-                                 adx: Optional[float], volume_conf: Optional[float]) -> float:
-        """Calculate weighted composite score from 4 criteria."""
+    def _calculate_composite_score(self, rel_strength: Optional[float], adx: Optional[float]) -> float:
+        """Calculate weighted composite score using simplified 2-criteria system.
+        
+        SIMPLIFIED APPROACH:
+        - Focuses on market strength and trend quality only
+        - 50/50 weighting between relative strength vs BTC and trend strength (ADX)
+        - Minimum score 75.0 still matches RiskManagement 75% confidence requirement
+        - RiskManagement service handles all risk-reward and volume validation at execution time
+        """
         score = 0.0
         
-        # Weights for each criterion (can be adjusted)
+        # Simplified weights for 2-criteria system
         weights = {
-            'rr_ratio': 0.4,        # 40% - Most important
-            'rel_strength': 0.25,   # 25% 
-            'adx': 0.2,            # 20%
-            'volume_conf': 0.15     # 15%
+            'rel_strength': 0.50,   # 50% - Market strength relative to BTC
+            'adx': 0.50            # 50% - Trend strength indicator
         }
-        
-        # Risk:Reward Ratio (normalized to 0-100)
-        if rr_ratio is not None and rr_ratio > 0:
-            rr_score = min(rr_ratio * 20, 100)  # Scale R:R, cap at 100
-            score += rr_score * weights['rr_ratio']
         
         # Relative Strength vs BTC (normalized to 0-100)
         if rel_strength is not None:
@@ -396,25 +323,9 @@ class MarketWatcher:
             adx_score = min(adx * 2, 100)  # Scale ADX, cap at 100
             score += adx_score * weights['adx']
         
-        # Volume Confirmation (normalized to 0-100)
-        if volume_conf is not None and volume_conf > 0:
-            # Volume ratio above 1.5x gets higher scores
-            vol_score = min((volume_conf - 1) * 50, 100) if volume_conf > 1 else 0
-            score += vol_score * weights['volume_conf']
-        
         return score
 
-    def _find_support_level(self, lows: List[float], current_price: float) -> Optional[float]:
-        """Find nearest support level below current price."""
-        # Simple implementation: find recent low that's below current price
-        support_levels = [low for low in lows[-20:] if low < current_price * 0.98]  # 2% buffer
-        return max(support_levels) if support_levels else None
 
-    def _find_resistance_level(self, highs: List[float], current_price: float) -> Optional[float]:
-        """Find nearest resistance level above current price."""
-        # Simple implementation: find recent high that's above current price
-        resistance_levels = [high for high in highs[-20:] if high > current_price * 1.02]  # 2% buffer
-        return min(resistance_levels) if resistance_levels else None
 
     def _calculate_adx(self, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14) -> Optional[float]:
         """Calculate ADX (Average Directional Index)."""
@@ -460,18 +371,7 @@ class MarketWatcher:
         
         return ema
 
-    def _get_rr_status(self, rr_ratio: Optional[float]) -> str:
-        """Get risk-reward ratio status description."""
-        if rr_ratio is None:
-            return "Unknown"
-        elif rr_ratio >= 3.0:
-            return "Excellent"
-        elif rr_ratio >= 2.0:
-            return "Good"
-        elif rr_ratio >= 1.5:
-            return "Fair"
-        else:
-            return "Poor"
+
 
     def _get_relative_strength_status(self, rel_strength: Optional[float]) -> str:
         """Get relative strength vs BTC status description."""
@@ -501,30 +401,17 @@ class MarketWatcher:
         else:
             return "No Trend"
 
-    def _get_volume_status(self, volume_conf: Optional[float]) -> str:
-        """Get volume confirmation status description."""
-        if volume_conf is None:
-            return "Unknown"
-        elif volume_conf >= 3.0:
-            return "Very High Volume"
-        elif volume_conf >= 2.0:
-            return "High Volume"
-        elif volume_conf >= 1.5:
-            return "Above Average"
-        elif volume_conf >= 1.0:
-            return "Normal"
-        else:
-            return "Below Average"
 
-    def get_top_movers_with_ranking(self, limit: int = 20, min_score: float = 50.0) -> List[Dict]:
-        """Get top movers and apply 4-criteria ranking, filtering by quality."""
+
+    def get_top_movers_with_ranking(self, limit: int = 20, min_score: float = 75.0) -> List[Dict]:
+        """Get top movers and apply simplified 2-criteria ranking, filtering by quality."""
         # First get top volume movers as candidates
         candidates = self.get_top_movers(limit * 3)  # Get more candidates for better filtering
         
         if not candidates:
             return []
         
-        # Apply 4-criteria ranking
+        # Apply simplified 2-criteria ranking
         ranked_symbols = self.get_ranked_symbols(candidates)
         
         # Filter by minimum score - only return good opportunities
@@ -540,8 +427,8 @@ class MarketWatcher:
         return good_opportunities[:limit] if len(good_opportunities) > limit else good_opportunities
 
 
-def update_watchlist_with_ranking(limit: int = 20, min_score: float = 50.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
-    """Helper to update watchlist using 4-criteria ranking system with quality filtering."""
+def update_watchlist_with_ranking(limit: int = 20, min_score: float = 75.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
+    """Helper to update watchlist using simplified 2-criteria ranking system with quality filtering."""
     try:
         if config is None:
             config = TradingConfig.from_env()
@@ -577,13 +464,13 @@ def check_symbol_tradeable(symbol: str) -> bool:
         return False
 
 
-def update_watchlist_from_top_movers(limit: int = 20, min_score: float = 50.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
+def update_watchlist_from_top_movers(limit: int = 20, min_score: float = 75.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
     """
     Helper to load config, fetch top movers with ranking, and update watchlist file.
     
     Args:
         limit: Maximum number of coins to include (not a hard requirement)
-        min_score: Minimum composite score required for a coin to be included (quality filter)
+        min_score: Minimum composite score required (default 75.0 to align with RiskManagement 75% confidence)
         config: Optional trading configuration
         
     Returns:
@@ -615,7 +502,7 @@ def get_quality_opportunities(min_score: float = 60.0, max_candidates: int = 100
         if not candidates:
             return None
         
-        # Apply 4-criteria ranking to all candidates
+        # Apply simplified 2-criteria ranking to all candidates
         ranked_symbols = watcher.get_ranked_symbols(candidates)
         
         # Filter by quality - no hard limit, only quality threshold
@@ -642,7 +529,7 @@ def get_quality_opportunities(min_score: float = 60.0, max_candidates: int = 100
         return None
 
 
-def update_watchlist_with_quality_filter(min_score: float = 50.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
+def update_watchlist_with_quality_filter(min_score: float = 75.0, config: Optional['TradingConfig'] = None) -> Optional[List[Dict]]:
     """
     Update watchlist with all coins meeting quality criteria (no hard limit).
     
@@ -678,8 +565,9 @@ def update_watchlist_with_quality_filter(min_score: float = 50.0, config: Option
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
-    # Default to quality-based selection (no hard limit, only quality filter)
-    symbols = update_watchlist_from_top_movers(limit=50, min_score=50.0)
+    # Default to quality-based selection using simplified 2-criteria system
+    # Aligned with RiskManagement 75% confidence requirement
+    symbols = update_watchlist_from_top_movers(limit=50, min_score=75.0)
     
     if symbols:
         print(f"Top {len(symbols)} quality opportunities written to watchlist:")
