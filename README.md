@@ -16,7 +16,27 @@ An intelligent, fully-automated trading bot for Binance that combines sophistica
 
 ### **Strategy Overview**
 
-Our EMA Cross Strategy with Advanced Quality Filters focuses on high-probability setups by requiring multiple confluence factors before entering trades. For detailed technical workflow, see our [Sequence Diagram Documentation](docs/sequence_diagram.md).
+The bot supports multiple trading strategies that can be selected based on market conditions and user preferences:
+
+#### **🎯 Enhanced EMA Cross Strategy** (Default - "Quality over Quantity")
+
+Our Enhanced EMA Cross Strategy with Advanced Quality Filters focuses on high-probability setups by requiring multiple confluence factors before entering trades. For detailed technical workflow, see our [Sequence Diagram Documentation](docs/sequence_diagram.md).
+
+#### **🌊 Adaptive ATR Strategy** (New - "Flexibility over Rigidity")
+
+The Adaptive ATR Strategy provides maximum flexibility by accepting a wide volatility range (5%-95% ATR percentile) and using dynamic, ATR-based risk management. Features include trailing stops, market condition awareness, and volatility-adjusted position sizing. See [Adaptive ATR Documentation](docs/adaptive_atr_strategy.md) for details.
+
+**Strategy Selection:**
+
+```bash
+# Enhanced EMA Strategy (default)
+export STRATEGY_MODE="enhanced_ema"
+./start.sh
+
+# Adaptive ATR Strategy
+export STRATEGY_MODE="adaptive_atr"
+./start_adaptive_atr.sh
+```
 
 #### **Entry Conditions** (All must align)
 

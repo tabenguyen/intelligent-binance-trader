@@ -23,6 +23,7 @@ from .services import (
 from .services.enhanced_risk_management_service import EnhancedRiskManagementService
 from .strategies import EMACrossStrategy
 from .strategies.improved_ema_cross_strategy import ImprovedEMACrossStrategy
+from .strategies.adaptive_atr_strategy import AdaptiveATRStrategy
 from .utils.config import load_strategy_configs
 
 
@@ -1077,20 +1078,34 @@ class TradingBot:
         # Load strategy configurations from environment
         strategy_configs = load_strategy_configs()
         
-        # Use ENHANCED EMA Cross Strategy - "Quality over Quantity"
-        ema_config = next((config for config in strategy_configs if "EMA Cross" in config.name), None)
-        if ema_config:
-            # Use the enhanced strategy for better quality trades
-            improved_ema_strategy = ImprovedEMACrossStrategy(ema_config)
-            strategies.append(improved_ema_strategy)
-            self.logger.info("✅ Loaded ENHANCED EMA Cross Strategy - Quality over Quantity focus")
-        else:
-            # Fallback to enhanced strategy with default config
-            improved_ema_strategy = ImprovedEMACrossStrategy()
-            strategies.append(improved_ema_strategy)
-            self.logger.info("✅ Loaded ENHANCED EMA Cross Strategy with default config")
+        # Get strategy mode from configuration
+        strategy_mode = self.config.strategy_mode
         
-        # Add more strategies here as needed
+        if strategy_mode == 'adaptive_atr':
+            # Use ADAPTIVE ATR Strategy - "Flexibility over Rigidity"
+            atr_config = next((config for config in strategy_configs if "ATR" in config.name), None)
+            if atr_config:
+                adaptive_atr_strategy = AdaptiveATRStrategy(atr_config)
+                strategies.append(adaptive_atr_strategy)
+                self.logger.info("✅ Loaded ADAPTIVE ATR Strategy - Flexibility over Rigidity focus")
+            else:
+                # Fallback to adaptive ATR strategy with default config
+                adaptive_atr_strategy = AdaptiveATRStrategy()
+                strategies.append(adaptive_atr_strategy)
+                self.logger.info("✅ Loaded ADAPTIVE ATR Strategy with default config")
+        else:
+            # Default: Use ENHANCED EMA Cross Strategy - "Quality over Quantity"
+            ema_config = next((config for config in strategy_configs if "EMA Cross" in config.name), None)
+            if ema_config:
+                # Use the enhanced strategy for better quality trades
+                improved_ema_strategy = ImprovedEMACrossStrategy(ema_config)
+                strategies.append(improved_ema_strategy)
+                self.logger.info("✅ Loaded ENHANCED EMA Cross Strategy - Quality over Quantity focus")
+            else:
+                # Fallback to enhanced strategy with default config
+                improved_ema_strategy = ImprovedEMACrossStrategy()
+                strategies.append(improved_ema_strategy)
+                self.logger.info("✅ Loaded ENHANCED EMA Cross Strategy with default config")
         
         return strategies
     

@@ -61,6 +61,9 @@ class TechnicalAnalysisService(ITechnicalAnalyzer):
             # ATR and volatility analysis
             indicators.update(self._safe_calculate_atr(df))
             
+            # ADX for trend strength
+            indicators.update(self._safe_calculate_adx(df))
+            
             # Volume analysis
             indicators.update(self._safe_calculate_volume(df))
             
@@ -104,6 +107,12 @@ class TechnicalAnalysisService(ITechnicalAnalyzer):
                 # If insufficient data for 55-EMA, use 26-EMA as fallback
                 if '26_EMA' in indicators:
                     indicators['55_EMA'] = indicators['26_EMA'] * 0.98  # Slightly lower estimate
+            
+            # Simple Moving Average 50 for AdaptiveATRStrategy
+            if len(df) >= 50:
+                ma_50 = ta.sma(df['close'], length=50)
+                if ma_50 is not None and len(ma_50) > 0:
+                    indicators['50_MA'] = float(ma_50.iloc[-1])
                     
         except Exception as e:
             self.logger.warning(f"Error calculating EMAs: {e}")
@@ -111,13 +120,20 @@ class TechnicalAnalysisService(ITechnicalAnalyzer):
         return indicators
     
     def _safe_calculate_rsi(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Safely calculate RSI indicator."""
+        """Safely calculate RSI indicators (both 14 and 21 period)."""
         indicators = {}
         try:
+            # Calculate RSI_14 for AdaptiveATRStrategy
+            if len(df) >= 14:
+                rsi_14 = ta.rsi(df['close'], length=14)
+                if rsi_14 is not None and len(rsi_14) > 0:
+                    indicators['RSI_14'] = float(rsi_14.iloc[-1])
+            
+            # Calculate RSI_21 for ImprovedEMACrossStrategy
             if len(df) >= 21:
-                rsi = ta.rsi(df['close'], length=21)
-                if rsi is not None and len(rsi) > 0:
-                    indicators['RSI_21'] = float(rsi.iloc[-1])
+                rsi_21 = ta.rsi(df['close'], length=21)
+                if rsi_21 is not None and len(rsi_21) > 0:
+                    indicators['RSI_21'] = float(rsi_21.iloc[-1])
         except Exception as e:
             self.logger.warning(f"Error calculating RSI: {e}")
         
@@ -145,9 +161,17 @@ class TechnicalAnalysisService(ITechnicalAnalyzer):
             if len(df) >= 20:
                 bb_data = ta.bbands(df['close'], length=20)
                 if bb_data is not None and len(bb_data.columns) >= 3 and len(bb_data) > 0:
-                    indicators['BB_Upper'] = float(bb_data.iloc[-1, 0])  # Upper band
-                    indicators['BB_Middle'] = float(bb_data.iloc[-1, 1])  # Middle band
-                    indicators['BB_Lower'] = float(bb_data.iloc[-1, 2])  # Lower band
+                    bb_upper = float(bb_data.iloc[-1, 0])  # Upper band
+                    bb_middle = float(bb_data.iloc[-1, 1])  # Middle band
+                    bb_lower = float(bb_data.iloc[-1, 2])  # Lower band
+                    
+                    indicators['BB_Upper'] = bb_upper
+                    indicators['BB_Middle'] = bb_middle
+                    indicators['BB_Lower'] = bb_lower
+                    
+                    # Calculate BB_Width for AdaptiveATRStrategy
+                    bb_width = (bb_upper - bb_lower) / bb_middle if bb_middle > 0 else 0
+                    indicators['BB_Width'] = bb_width
         except Exception as e:
             self.logger.warning(f"Error calculating Bollinger Bands: {e}")
         
@@ -177,6 +201,27 @@ class TechnicalAnalysisService(ITechnicalAnalyzer):
                         indicators['Volatility_State'] = 'NORMAL'
         except Exception as e:
             self.logger.warning(f"Error calculating ATR: {e}")
+        
+        return indicators
+    
+    def _safe_calculate_adx(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Safely calculate ADX (Average Directional Index) for trend strength."""
+        indicators = {}
+        try:
+            if len(df) >= 14:
+                adx_result = ta.adx(df['high'], df['low'], df['close'], length=14)
+                if adx_result is not None:
+                    # ADX returns a DataFrame with multiple columns, we want the ADX column
+                    if hasattr(adx_result, 'columns') and len(adx_result.columns) > 0:
+                        # Try to get the ADX column (usually the last one)
+                        adx_col = adx_result.iloc[:, -1]  # Last column is typically ADX
+                        if len(adx_col) > 0 and not pd.isna(adx_col.iloc[-1]):
+                            indicators['ADX'] = float(adx_col.iloc[-1])
+                    elif len(adx_result) > 0 and not pd.isna(adx_result.iloc[-1]):
+                        # If it's a Series
+                        indicators['ADX'] = float(adx_result.iloc[-1])
+        except Exception as e:
+            self.logger.warning(f"Error calculating ADX: {e}")
         
         return indicators
     

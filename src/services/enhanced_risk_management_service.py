@@ -565,6 +565,81 @@ class EnhancedRiskManagementService(IRiskManager):
         
         return reward / risk
     
+    def update_trailing_stop(self, position_entry_price: float, current_price: float, 
+                           current_stop_loss: float, signal: TradingSignal) -> Optional[float]:
+        """
+        Update trailing stop-loss for adaptive ATR strategy.
+        
+        Args:
+            position_entry_price: Original entry price
+            current_price: Current market price
+            current_stop_loss: Current stop-loss level
+            signal: Original trading signal with strategy metadata
+            
+        Returns:
+            New stop-loss level or None if no update needed
+        """
+        try:
+            # Check if this is an adaptive ATR strategy signal with trailing stop enabled
+            if not signal.indicators.get('use_trailing_stop', False):
+                return None
+            
+            # Get trailing stop parameters from signal
+            trailing_atr_multiplier = signal.indicators.get('trailing_stop_atr_multiplier', 1.0)
+            min_profit_before_trail = signal.indicators.get('min_profit_before_trail', 0.015)
+            atr_value = signal.indicators.get('ATR', (current_price - position_entry_price) * 0.02)
+            
+            # Check if we have minimum profit before activating trailing stop
+            current_profit_pct = (current_price - position_entry_price) / position_entry_price
+            if current_profit_pct < min_profit_before_trail:
+                self.logger.debug(f"Trailing stop not active yet - profit {current_profit_pct:.1%} < {min_profit_before_trail:.1%}")
+                return None
+            
+            # Calculate new trailing stop level
+            new_trailing_stop = current_price - (trailing_atr_multiplier * atr_value)
+            
+            # Only update if new stop is higher than current stop (for long positions)
+            if new_trailing_stop > current_stop_loss:
+                self.logger.info(f"🎯 TRAILING STOP UPDATE: ${current_stop_loss:.4f} -> ${new_trailing_stop:.4f}")
+                self.logger.info(f"   Current Price: ${current_price:.4f}, ATR: ${atr_value:.4f}")
+                self.logger.info(f"   Profit: {current_profit_pct:.1%}, Trail Distance: {trailing_atr_multiplier:.1f}x ATR")
+                return new_trailing_stop
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Error updating trailing stop: {e}")
+            return None
+    
+    def should_exit_with_trailing_stop(self, position_entry_price: float, current_price: float,
+                                     current_stop_loss: float, signal: TradingSignal) -> bool:
+        """
+        Check if position should be exited due to trailing stop being hit.
+        
+        Args:
+            position_entry_price: Original entry price
+            current_price: Current market price  
+            current_stop_loss: Current stop-loss level
+            signal: Original trading signal
+            
+        Returns:
+            True if position should be exited
+        """
+        try:
+            # For long positions, exit if current price drops below stop-loss
+            if current_price <= current_stop_loss:
+                profit_pct = (current_price - position_entry_price) / position_entry_price
+                self.logger.info(f"🛑 TRAILING STOP TRIGGERED!")
+                self.logger.info(f"   Entry: ${position_entry_price:.4f}, Current: ${current_price:.4f}")
+                self.logger.info(f"   Stop Level: ${current_stop_loss:.4f}, Final Profit: {profit_pct:.1%}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Error checking trailing stop exit: {e}")
+            return False
+    
     def get_risk_summary(self) -> str:
         """Get enhanced risk management summary."""
         return f"""

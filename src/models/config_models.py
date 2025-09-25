@@ -84,6 +84,9 @@ class TradingConfig:
     telegram_signal_group_id: Optional[str] = None
     enable_telegram_notifications: bool = False
     
+    # Strategy Selection
+    strategy_mode: str = "enhanced_ema"  # Strategy mode: "enhanced_ema" or "adaptive_atr"
+    
     # Simulation Mode Configuration
     simulation_mode: bool = False
     simulation_balance: float = 10000.0  # Default $10k simulation balance
@@ -168,6 +171,9 @@ class TradingConfig:
             telegram_chat_id=get_env("TELEGRAM_CHAT_ID"),
             telegram_signal_group_id=get_env("TELEGRAM_SIGNAL_GROUP_ID"),
             enable_telegram_notifications=get_env_bool("ENABLE_TELEGRAM_NOTIFICATIONS", False),
+            
+            # Strategy Selection
+            strategy_mode=get_env("STRATEGY_MODE", "enhanced_ema").lower(),
             
             # Simulation Mode Configuration  
             simulation_mode=get_env_bool("SIMULATION_MODE", False),
