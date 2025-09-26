@@ -79,6 +79,11 @@ class BaseStrategy(IStrategy):
         if signal.confidence < self.config.confidence_threshold:
             return False
         
+        # Check core conditions requirement
+        required_core_conditions = self.config.parameters.get('core_conditions_required', 1)
+        if signal.core_conditions_count < required_core_conditions:
+            return False
+        
         # Check required fields
         if not signal.symbol or not signal.price or signal.price <= 0:
             return False

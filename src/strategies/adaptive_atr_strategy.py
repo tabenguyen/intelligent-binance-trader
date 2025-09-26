@@ -56,6 +56,7 @@ class AdaptiveATRStrategy(BaseStrategy):
                 'rsi_overbought_threshold': 75,          # More flexible RSI
                 'ema_cross_confirmation': True,          # Still need EMA cross
                 'volume_confirmation_ratio': 1.2,        # Lower volume requirement
+                'core_conditions_required': 3,           # Need 3/4 core conditions
                 
                 # Risk Management
                 'max_risk_per_trade_pct': 2.0,          # Max 2% risk per trade
@@ -146,6 +147,7 @@ class AdaptiveATRStrategy(BaseStrategy):
                 confidence=confidence,
                 stop_loss=stop_loss,
                 take_profit=initial_take_profit,
+                core_conditions_count=entry_signals['count']
             )
             
             # Add adaptive strategy metadata
@@ -271,9 +273,9 @@ class AdaptiveATRStrategy(BaseStrategy):
         volume_confirmed = volume_ratio >= min_volume_ratio
         conditions.append(('Volume Confirmation (≥1.2x)', volume_confirmed))
         
-        # Count passed conditions - need at least 3/4 for adaptive strategy
+        # Count passed conditions - need all 4/4 for adaptive strategy
         passed_count = sum(1 for _, passed in conditions if passed)
-        required_count = 3
+        required_count = 4
         
         return {
             'passed': passed_count >= required_count,
@@ -385,7 +387,7 @@ class AdaptiveATRStrategy(BaseStrategy):
     def _log_failed_entry_conditions(self, symbol: str, conditions: list) -> None:
         """Log detailed analysis when entry conditions fail."""
         passed_count = sum(1 for _, passed in conditions if passed)
-        required = 3
+        required = 4
         
         self.logger.info(f"[{symbol}] ❌ ADAPTIVE ENTRY REJECTED: Entry conditions not met")
         self.logger.info(f"  📊 ADAPTIVE ENTRY ANALYSIS ({passed_count}/4 passed, need {required}+):")
@@ -430,7 +432,8 @@ class AdaptiveATRStrategy(BaseStrategy):
         """
 
     def create_signal(self, market_data: MarketData, direction: TradeDirection, 
-                     confidence: float, stop_loss: float, take_profit: float, **kwargs) -> TradingSignal:
+                     confidence: float, stop_loss: float, take_profit: float, 
+                     core_conditions_count: int = 0, **kwargs) -> TradingSignal:
         """Create trading signal with adaptive strategy enhancements."""
         signal = TradingSignal(
             symbol=market_data.symbol,
@@ -441,6 +444,7 @@ class AdaptiveATRStrategy(BaseStrategy):
             stop_loss=stop_loss,
             take_profit=take_profit,
             strategy_name=self.name,
+            core_conditions_count=core_conditions_count,
             indicators=market_data.technical_analysis.indicators.copy() if market_data.technical_analysis else {}
         )
         
